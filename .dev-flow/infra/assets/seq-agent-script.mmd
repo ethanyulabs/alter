@@ -1,0 +1,41 @@
+sequenceDiagram
+  autonumber
+  participant A as Agent
+  participant CLI as alter CLI (Rust)
+  participant S as alter-sdk (Bun)
+  participant G as alterd Gateway
+  participant T as alterd TaskSpaceManager / CdpMux
+  participant M as Electron Main
+  participant C as Chromium
+  participant O as Renderer AgentOverlay
+  A->>CLI: alter nodejs（heredoc 脚本）
+  CLI->>CLI: 读取 gateway.json（端口 + token）
+  CLI->>S: 启动 Bun，注入 ALTER_GATEWAY_URL / ALTER_TOKEN
+  S->>G: WS 连接 + Bearer token
+  G-->>S: hello {version, pageBudget}
+  S->>G: taskSpace.create {name, spaceId?}
+  G->>T: 创建 TaskSpace（ownership=agent）
+  T->>M: shell.createTab {tabId, label=p1, agentOwned}
+  M->>C: new BrowserView(partition)
+  T-->>S: {spaceId, pages:[p1]}
+  S->>G: page.goto {label=p1, url}
+  G->>T: 校验 ownership=agent
+  T->>C: CDP Page.navigate（直连，不经 Main）
+  C-->>T: Page.loadEventFired
+  T->>O: overlay.action {label=p1, text="打开页面"}
+  T-->>S: receipt {ok, durationMs}
+  S->>G: page.snapshot {label=p1}
+  T->>C: CDP Accessibility.getFullAXTree
+  T-->>S: snapshot 文本（带 @ref）
+  S-->>CLI: stdout 打印 snapshot
+  CLI-->>A: 退出码 0
+  alt token 无效或缺失
+    G-->>S: 错误 E_UNAUTHORIZED
+    S-->>CLI: 退出码 2，提示重新打开 alter.app
+  end
+  alt 页面预算用尽
+    T-->>S: 错误 E_PAGE_BUDGET {budget, open}
+  end
+  alt 选择器匹配多个元素
+    T-->>S: 错误 E_AMBIGUOUS_SELECTOR {matches}
+  end

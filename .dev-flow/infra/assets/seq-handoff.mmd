@@ -1,0 +1,30 @@
+sequenceDiagram
+  autonumber
+  participant A as Agent 脚本 (alter-sdk)
+  participant G as alterd Gateway
+  participant T as alterd TaskSpaceManager
+  participant M as Electron Main
+  participant R as Renderer
+  participant U as 用户
+  A->>G: taskSpace.handOff {spaceId}
+  G->>T: ownership agent -> user
+  T->>T: UPDATE task_spaces SET ownership='user'
+  T->>M: shell.setOverlay {spaceId, mode="user"}
+  M->>R: 隐藏 agent 光标，显示「等待你操作」横幅
+  T-->>A: ok
+  A-->>A: 脚本结束，agent 向用户说明要做什么
+  U->>R: 在页面上完成登录 / 验证码
+  U->>R: 点击「交还给 Agent」
+  R->>M: IPC taskSpace.returnToAgent
+  M->>G: shell.event.ownershipReturned {spaceId}
+  G->>T: ownership user -> agent
+  T-->>R: 事件 taskSpace.ownershipChanged
+  A->>G: takeOverTaskSpace {spaceId}（新一轮脚本）
+  G-->>A: {ownership: "agent", userPage: p1}
+  alt 用户在 agent 操作中途接管（点击页面或「停止 Agent」）
+    R->>M: IPC taskSpace.takeControl
+    M->>G: shell.event.userTookControl {spaceId}
+    G->>T: ownership -> user，挂起 CDP 会话
+    A->>G: page.click {label=p1}
+    G-->>A: 错误 E_USER_CONTROL（脚本必须停止，不重试）
+  end

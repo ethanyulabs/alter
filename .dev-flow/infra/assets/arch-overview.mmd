@@ -1,0 +1,47 @@
+flowchart LR
+  user([用户]):::frontend
+  agent([Agent<br/>Claude Code 等]):::external
+  cli[alter CLI<br/>Rust]:::backend
+  sdk[alter-sdk<br/>TS, Bun 运行]:::backend
+  subgraph app [alter.app（Electron 壳）]
+    renderer[Renderer<br/>Sidebar · CommandBar · SplitView · AgentOverlay]:::frontend
+    main[Electron Main<br/>WindowManager · ShellControl]:::frontend
+    chromium[Chromium 渲染进程<br/>每个 Space 一个 partition]:::frontend
+  end
+  subgraph daemon [alterd（Rust 守护进程）]
+    gateway[Gateway<br/>WS JSON-RPC + token]:::backend
+    tsm[TaskSpaceManager]:::backend
+    cdpmux[CdpMux<br/>chromiumoxide]:::backend
+    shelllink[ShellLink]:::backend
+    importer[ImportService]:::backend
+    store[(SQLite<br/>rusqlite, WAL)]:::data
+  end
+  chrome[[Chrome / Arc 本地数据]]:::external
+  keychain[[macOS Keychain]]:::security
+  gh[[GitHub Releases]]:::external
+  user -->|点击 / 快捷键| renderer
+  renderer -->|IPC| main
+  main -->|创建 / 销毁 BrowserView<br/>partition=persist:space-id| chromium
+  agent -->|alter nodejs 脚本| cli
+  cli -->|启动 Bun 加载| sdk
+  sdk -->|ws://127.0.0.1 JSON-RPC| gateway
+  cli -->|spaces / import / status| gateway
+  gateway -->|调度| tsm
+  gateway -->|导入| importer
+  tsm -->|CDP 会话| cdpmux
+  tsm -->|建 / 关标签, 叠层| shelllink
+  tsm -->|读写| store
+  importer -->|写入| store
+  agent -.->|Playwright connectOverCDP| cdpmux
+  cdpmux -->|remote-debugging 端口| chromium
+  shelllink -->|Unix socket, JSON 行| main
+  importer -->|读取 Bookmarks / History / Cookies| chrome
+  importer -->|Chrome Safe Storage 密钥| keychain
+  cli -->|alter upgrade 下载 DMG| gh
+  classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
+  classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b
+  classDef data fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef queue fill:#ffedd5,stroke:#ea580c,color:#7c2d12
+  classDef external fill:#f1f5f9,stroke:#64748b,color:#1e293b,stroke-dasharray:4 3
+  classDef security fill:#ffe4e6,stroke:#e11d48,color:#881337
+  classDef changed stroke-width:3px,stroke:#dc2626

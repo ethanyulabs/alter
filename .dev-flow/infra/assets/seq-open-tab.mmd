@@ -1,0 +1,27 @@
+sequenceDiagram
+  autonumber
+  participant U as 用户
+  participant R as Renderer (CommandBar)
+  participant M as Electron Main (ShellControl)
+  participant D as alterd (TaskSpaceManager / Store)
+  participant C as Chromium (BrowserView)
+  U->>R: Cmd+T 输入 "github.com" 回车
+  R->>M: IPC tab.open {spaceId, input}
+  M->>D: shell.event.openRequested {spaceId, url}
+  D->>D: 解析输入（URL / 搜索 / 已有标签）
+  D->>D: INSERT tabs(space_id, url, position)
+  D->>M: shell.createTab {tabId, spaceId, url}
+  M->>C: new BrowserView(partition=persist:space-<id>) 并 loadURL
+  C-->>M: did-finish-load / 标题 / favicon
+  M->>D: shell.event.tabUpdated {tabId, title, favicon}
+  D->>D: UPDATE tabs SET title, favicon
+  D-->>R: 事件 tabs.changed（经 Main 转发）
+  R-->>U: 侧边栏出现新标签并激活
+  alt 输入匹配已打开标签
+    D->>M: shell.activateTab {tabId}
+    M-->>R: 事件 tabs.changed
+  end
+  alt Space 不存在或已归档
+    D-->>M: 错误 E_SPACE_NOT_FOUND
+    M-->>R: 命令栏提示「Space 不存在」
+  end

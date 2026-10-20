@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "project": "alter",
+  "doc_language": "zh-CN",
+  "repos": [
+    {
+      "name": "alter",
+      "path": ".",
+      "test": "",
+      "lint": "",
+      "typecheck": "",
+      "build": ""
+    }
+  ],
+  "peers": [],
+  "commit_checkpoints": false,
+  "coverage_threshold": null,
+  "reviewer": null,
+  "verifier": null
+}

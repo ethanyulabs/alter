@@ -1,0 +1,33 @@
+sequenceDiagram
+  autonumber
+  participant U as 用户
+  participant R as Renderer (导入向导) / alter CLI
+  participant G as alterd Gateway
+  participant I as alterd ImportService
+  participant K as macOS Keychain
+  participant F as Chrome / Arc 数据目录
+  participant S as alterd Store
+  participant C as Chromium (Space partition)
+  U->>R: 选择来源 chrome|arc、源 profile、目标 Space
+  R->>G: import.run {source, profilePath, spaceId, items:[bookmarks,history,cookies]}
+  G->>I: 启动导入任务 INSERT imports(status='running')
+  I->>F: 拷贝 Bookmarks(JSON) / History(SQLite) / Cookies(SQLite) 到临时目录
+  I->>I: 解析书签树、最近 90 天历史
+  I->>S: 批量 INSERT bookmarks / history
+  I->>K: security find-generic-password "Chrome Safe Storage"
+  K-->>U: 系统弹窗请求授权
+  U-->>K: 允许
+  K-->>I: 密钥（仅内存）
+  I->>I: PBKDF2 + AES-128-CBC 解密 encrypted_value
+  I->>C: CDP Network.setCookies（按域名批量，走该 Space 的 partition）
+  I->>S: UPDATE imports SET status='done', counts
+  G-->>R: 事件 import.progress / import.done {bookmarks, history, cookies}
+  R-->>U: 显示导入结果
+  alt 用户拒绝 Keychain 授权
+    K-->>I: errSecAuthFailed
+    I->>S: UPDATE imports SET status='partial', error='keychain_denied'
+    G-->>R: import.done {cookies: 0, warning: "未授权，已导入书签与历史"}
+  end
+  alt 源浏览器正在运行导致 SQLite 锁
+    I->>I: 已先拷贝文件，不受锁影响
+  end

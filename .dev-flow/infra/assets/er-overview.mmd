@@ -1,0 +1,80 @@
+erDiagram
+  spaces ||--o{ tabs : "space_id"
+  spaces ||--o{ bookmarks : "space_id"
+  spaces ||--o{ history : "space_id"
+  spaces ||--o{ task_spaces : "space_id"
+  spaces ||--o{ imports : "space_id"
+  task_spaces ||--o{ task_pages : "task_space_id"
+  tabs |o--o| task_pages : "tab_id"
+  spaces {
+    text id PK "ULID；partition 名为 persist:space-<id>"
+    text name "显示名"
+    text color "侧边栏主题色"
+    integer position "排序"
+    integer created_at "UTC 毫秒"
+    integer archived_at "归档时间，NULL 表示活跃"
+  }
+  tabs {
+    text id PK "ULID"
+    text space_id FK
+    text url
+    text title
+    text favicon_url
+    integer pinned "0/1"
+    integer position
+    text split_group "同组标签并排显示，NULL 单页"
+    integer last_active_at "UTC 毫秒"
+    integer archived_at "自动归档时间，NULL 活跃"
+  }
+  bookmarks {
+    text id PK
+    text space_id FK
+    text parent_id "文件夹，NULL 根"
+    text title
+    text url "文件夹为 NULL"
+    integer position
+    text source "manual|chrome|arc"
+  }
+  history {
+    integer id PK
+    text space_id FK
+    text url
+    text title
+    integer visited_at "UTC 毫秒"
+    text source "alter|chrome|arc"
+  }
+  task_spaces {
+    integer id PK "自增，CLI 用它 resume"
+    text space_id FK
+    text name
+    text ownership "agent|user"
+    text status "active|finished|inactive"
+    integer page_budget
+    integer created_at
+    integer finished_at
+  }
+  task_pages {
+    integer id PK
+    integer task_space_id FK
+    text label "p1 p2 … 在 TaskSpace 内唯一"
+    text tab_id FK
+    text opened_by "agent|user|unknown"
+    integer closed_at
+  }
+  imports {
+    integer id PK
+    text space_id FK
+    text source "chrome|arc"
+    text profile_path
+    text status "running|done|partial|failed"
+    integer bookmarks_count
+    integer history_count
+    integer cookies_count
+    text error
+    integer started_at
+    integer finished_at
+  }
+  schema_version {
+    integer version PK
+    integer applied_at
+  }

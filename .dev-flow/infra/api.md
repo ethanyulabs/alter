@@ -1,0 +1,84 @@
+# API
+
+<!-- 模块、仓库和客户端之间的契约。这里的变更需要契约测试（宪章第四条）。 -->
+
+## 约定
+- Base URL / 版本：Gateway 为 `ws://127.0.0.1:<port>/rpc`，端口随机，连同 token 写在 `~/Library/Application Support/alter/gateway.json`（`{"port", "token", "cdpPort", "version"}`）。协议为 JSON-RPC 2.0；`hello` 响应里带 `protocolVersion`（整数），SDK 版本不匹配时报 `E_PROTOCOL_VERSION`。
+- 认证：WS 握手头 `Authorization: Bearer <token>`；缺失或错误时握手返回 401，连接内不再校验。
+- 错误：JSON-RPC `error.data` 固定为 `{"code": "E_…", "message": "<人可读>", "details": {...}}`。错误码：`E_UNAUTHORIZED`、`E_PROTOCOL_VERSION`、`E_SPACE_NOT_FOUND`、`E_TASK_SPACE_NOT_FOUND`、`E_PAGE_NOT_FOUND`、`E_PAGE_BUDGET`、`E_USER_CONTROL`、`E_AMBIGUOUS_SELECTOR`、`E_NO_MATCH`、`E_TIMEOUT`、`E_DIALOG_OPEN`、`E_IMPORT_SOURCE_NOT_FOUND`、`E_KEYCHAIN_DENIED`、`E_INTERNAL`。
+- 分页：无；列表接口返回全部（TaskSpace、Space 数量都很小）。
+- 时间：全部 UTC 毫秒整数；时长字段名以 `Ms` 结尾。
+- 标识：Space 和 Tab 用 ULID 字符串；TaskSpace 用自增整数（agent 跨轮次 resume 时好记）；Page 用标签字符串 `p1`、`p2`…。
+
+## 接口
+Gateway（JSON-RPC 方法）。`label` 是 Page 标签，`selector` 接受 `@ref` / `text=` / `loc=css:` / `loc=role:` / `xpath=` / 原生 CSS。
+
+| 方法 | 路径 | 用途 | 请求 | 响应 | 错误 |
+|---|---|---|---|---|---|
+| RPC | `hello` | 握手，交换版本与预算 | `{clientVersion}` | `{protocolVersion, pageBudget, spaces:[{id,name}]}` | `E_PROTOCOL_VERSION` |
+| RPC | `space.list` | 列出 Space | `{}` | `{spaces:[{id,name,color,tabCount,archived}]}` | — |
+| RPC | `taskSpace.create` | 新建 TaskSpace，附带 `p1` | `{name, spaceId?, profileId?}` | `{id, spaceId, ownership:"agent", pages:["p1"]}` | `E_SPACE_NOT_FOUND` |
+| RPC | `taskSpace.resume` | 恢复已有 TaskSpace | `{id}` | `{id, spaceId, ownership, pages:[…]}` | `E_TASK_SPACE_NOT_FOUND` |
+| RPC | `taskSpace.list` | 列出 TaskSpace | `{}` | `{taskSpaces:[{id,name,spaceId,ownership,status}]}` | — |
+| RPC | `taskSpace.newPage` | 新开空白 Page | `{id, as?}` | `{label}` | `E_PAGE_BUDGET`、`E_USER_CONTROL` |
+| RPC | `taskSpace.tabs` | 该 TaskSpace 所在 Space 的全部标签（含未托管） | `{id}` | `{tabs:[{label?,tabId,title,url,active,openedBy}]}` | — |
+| RPC | `taskSpace.adopt` / `taskSpace.release` | 托管一个未托管标签 / 归还给用户 | `{id, tabId, as?}` / `{id, label}` | `{label}` / `{}` | `E_PAGE_NOT_FOUND` |
+| RPC | `taskSpace.handOff` | ownership → user | `{id}` | `{}` | — |
+| RPC | `taskSpace.takeOver` | ownership → agent（用户已交还时） | `{id}` | `{ownership, userPage?}` | `E_USER_CONTROL`（用户尚未交还） |
+| RPC | `taskSpace.finish` | 结束，关闭未列入 keep 的 agent 页面 | `{id, keep:[labels]}` | `{closed:[labels], kept:[labels]}` | — |
+| RPC | `page.info` / `page.url` / `page.title` | 页面状态 | `{id, label}` | `{url,title,loading,dialog?}` | `E_PAGE_NOT_FOUND` |
+| RPC | `page.goto` / `page.reload` | 导航 | `{id,label,url,waitUntil?,timeoutMs?}` | `receipt` | `E_TIMEOUT`、`E_USER_CONTROL` |
+| RPC | `page.snapshot` | 无障碍树文本 | `{id,label,scope?:"viewport"\|"full_page"\|"subtree",root?}` | `{text, refs:n}` | — |
+| RPC | `page.screenshot` | 截图到绝对路径 | `{id,label,path,fullPage?}` | `{path,width,height}` | — |
+| RPC | `page.click` / `dblclick` / `hover` / `fill` / `focus` / `press` / `selectOption` / `dragAndDrop` / `setInputFiles` | 元素动作 | `{id,label,selector,value?,label?:"3-6 词动作描述"}` | `receipt` | `E_NO_MATCH`、`E_AMBIGUOUS_SELECTOR`、`E_DIALOG_OPEN`、`E_USER_CONTROL` |
+| RPC | `page.mouse` / `page.keyboard` | 原始指针 / 键盘 | `{id,label,op,args}` | `receipt` | `E_USER_CONTROL` |
+| RPC | `page.waitFor` | 等待 URL / selector / 函数 / 事件 / 超时 | `{id,label,kind,arg,timeoutMs?}` | `{matched}` | `E_TIMEOUT` |
+| RPC | `page.evaluate` | 页内执行函数 | `{id,label,fn,arg?}` | `{value}` | `E_TIMEOUT` |
+| RPC | `page.fetch` | 页内 `window.fetch` | `{id,label,url,options,saveAs?}` | `{ok,status,headers,body\|path}` | — |
+| RPC | `page.dialog` | 处理 JS 对话框 | `{id,label,accept,promptText?}` | `{}` | `E_NO_MATCH`（无对话框） |
+| RPC | `page.close` | 关闭 agent 创建的 Page | `{id,label}` | `{}` | — |
+| RPC | `page.cdp` / `taskSpace.cdp` | 透传 CDP 命令（页面级 / Target、Browser 级） | `{id,label?,method,params}` | `{result}` | — |
+| RPC | `import.run` | 导入 Chrome / Arc profile | `{source:"chrome"\|"arc", profilePath?, spaceId, items:[…]}` | `{importId}` + 事件 | `E_IMPORT_SOURCE_NOT_FOUND` |
+| RPC | `import.status` | 导入进度 | `{importId}` | `{status, counts, error?}` | — |
+| HTTP | `GET http://127.0.0.1:<cdpPort>/json/version` | CDP 转发端点，供 Playwright `connectOverCDP` | — | 标准 CDP 发现 JSON | — |
+
+`receipt` 结构：`{ok, durationMs, popups:[{label,targetId}], dialog?:{type,message}}`。它只描述已派发的动作和立即观察到的弹窗，不代表页面最终状态。
+
+Shell Control Channel（alterd ↔ Electron Main，Unix socket `shell.sock`，每行一个 JSON 对象）：
+
+| 方向 | 消息 | 用途 | 字段 |
+|---|---|---|---|
+| alterd → Electron | `shell.createTab` | 在某 Space 创建 BrowserView | `{tabId, spaceId, url, agentOwned, position}` |
+| alterd → Electron | `shell.closeTab` / `shell.activateTab` | 关闭 / 激活 | `{tabId}` |
+| alterd → Electron | `shell.setLayout` | 分屏布局 | `{spaceId, groups:[[tabId,…]]}` |
+| alterd → Electron | `shell.setOverlay` | agent 叠层：光标位置、动作文字、模式 | `{tabId, mode:"agent"\|"user"\|"off", cursor?:{x,y}, text?}` |
+| alterd → Electron | `shell.stateChanged` | Space / 标签列表变化（Renderer 据此重绘） | `{spaceId, tabs:[…]}` |
+| Electron → alterd | `shell.event.openRequested` | 命令栏输入 | `{spaceId, input}` |
+| Electron → alterd | `shell.event.tabUpdated` / `tabClosed` / `tabActivated` | 页面状态回流 | `{tabId, title?, faviconUrl?, url?}` |
+| Electron → alterd | `shell.event.userTookControl` / `ownershipReturned` | 用户接管 / 交还 | `{taskSpaceId}` |
+| Electron → alterd | `shell.event.cdpReady` | Chromium remote-debugging 端口就绪 | `{cdpPort}` |
+
+CLI（`alter`，所有子命令读同一个 `gateway.json`；`ALTER_HOME` 覆盖数据目录以便测试）：
+
+| 子命令 | 用途 | 退出码 |
+|---|---|---|
+| `alter nodejs [-e <code>]`（stdin heredoc 或 `-e`） | 用打包的 Bun 运行脚本，预置 `taskSpace`、`takeOverTaskSpace`、`claimTaskSpace`、`listTaskSpaces` 全局函数 | 脚本退出码；无法连接 2 |
+| `alter spaces list [--json]` | 列出 Space | 0 |
+| `alter import --from chrome\|arc [--profile <path>] --space <id> [--items bookmarks,history,cookies]` | 导入并等待完成，打印计数 | 0；部分成功 0 并打印警告；来源不存在 1 |
+| `alter status [--json]` | app / alterd 是否运行、版本、端口、最近错误 | 运行中 0，未运行 1 |
+| `alter upgrade [--check]` | 从 GitHub Releases 下载并安装新版 DMG | 0；无更新 0；下载失败 1 |
+| `alter --version` | 版本 | 0 |
+
+SDK（`packages/sdk`，Bun 内全局可用）：`taskSpace(name|id)`、`takeOverTaskSpace(id)`、`claimTaskSpace(id)`、`listTaskSpaces()`；TaskSpace 对象：`spaceId`、`name`、`ownership`、`page(label)`、`userPage()`、`pages()`、`tabs()`、`newPage()`、`adopt()`、`release()`、`handOff()`、`waitForControl()`、`finish({keep})`、`cdp()`；Page 对象一一对应上表 `page.*` 方法，外加 `mouse.*`、`keyboard.*`、`waitForEvent("popup"|"download")`、`waitForFileChooser()`。与 ego-browser 的 API 形状保持一致，方便 skill 迁移。
+
+## 事件 / 消息
+Gateway 用 JSON-RPC 通知（无 id）推送：
+
+| 主题 | 生产者 | 消费者 | 消息体 |
+|---|---|---|---|
+| `taskSpace.ownershipChanged` | alterd | SDK（`waitForControl`）、Renderer | `{id, ownership, reason:"handOff"\|"userTookControl"\|"returned"}` |
+| `page.dialog` | alterd | SDK | `{id, label, type, message}` |
+| `page.popup` | alterd | SDK | `{id, label, newLabel, targetId}` |
+| `page.download` | alterd | SDK | `{id, label, url, suggestedFilename, path}` |
+| `import.progress` / `import.done` | alterd | Renderer、CLI | `{importId, status, counts, warning?}` |
+| `app.updateAvailable` | alterd | Renderer、CLI（`[alter:notice]` 行） | `{version, url}` |
