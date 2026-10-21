@@ -31,7 +31,7 @@ alter 是一个 macOS 浏览器，给人和 AI agent 共用：对人提供 Arc �
 
 单个测试：Rust `cargo test -p alterd --test lifecycle`（或 `cargo test -p alter-core --test store r1_s1`）；TS `bun test packages/sdk/tests/smoke.test.ts`；Electron 端到端 `bun run e2e --grep R7`（按场景 ID 过滤，会先构建 alterd 与 app）。端到端需要本机能启动 Electron 窗口，每次启动自动用临时 `ALTER_HOME`，`ALTER_E2E_ARGS` 可追加 Electron 参数；CLI 与 alterd 测试同样用临时 `ALTER_HOME` 隔离状态。无需外部服务。
 
-命令行入口（调试时可直接跑）：`cargo run -q -p alter-cli -- --version`、`ALTER_HOME=<临时目录> cargo run -q -p alter-cli -- status [--json]`（退出码 0 运行中、1 未运行或残留）、`ALTER_HOME=<临时目录> cargo run -q -p alterd -- run`（Ctrl+C 退出；已有实例时退出码 3）、`bun run protocol:export`（重新生成 TS 协议类型）。
+命令行入口（调试时可直接跑）：`cargo run -q -p alter-cli -- --version`、`ALTER_HOME=<临时目录> cargo run -q -p alter-cli -- status [--json]`（退出码 0 运行中、1 未运行或残留）、`ALTER_HOME=<临时目录> cargo run -q -p alterd -- run`（Ctrl+C 退出；已有实例时退出码 3；app 托管时带 `--exit-on-stdin-close`，stdin 关闭即清理退出）、`bun run protocol:export`（重新生成 TS 协议类型）。
 
 ## 技术栈
 - Rust（stable，edition 2024）：tokio、chromiumoxide（CDP）、rusqlite（bundled SQLite，WAL）、security-framework（Keychain）、serde、ts-rs（导出 TS 类型）、clap、assert_cmd。
@@ -92,6 +92,7 @@ alter/
 - Electron 端到端在 `apps/browser/e2e/`（Playwright `_electron.launch`），用例标题以场景 ID 开头；目前覆盖主窗口与 alterd 托管，后续加侧边栏、命令栏、叠层与接管。
 - 评审与验证交给 codex 时，它的沙箱启动不了 Electron（SIGABRT），e2e 由主会话在本机跑 `bun run e2e`，把结果贴进验证报告并注明运行环境。
 - CLI 用 `assert_cmd` 跑真实二进制，`ALTER_HOME` 指向临时目录。
+- alterd 退出路径（信号、stdin 关闭）的测试要覆盖宿主已死、stdin / stderr 管道都已断开的情况：此时写日志会失败，清理不能因此中断。只靠 e2e 才测得出的问题，codex 的沙箱跑不到。
 - `scripts/install.sh` 过 `shellcheck`，并用 `--dry-run` 断言步骤。
 - 一次变更完成的标准：宪章质量门禁全部通过（fmt、clippy、cargo test、lint、typecheck、bun test，涉及 UI / 网关时加 e2e），`dflow.py validate` 通过，log.md 有 RED → GREEN 证据。
 

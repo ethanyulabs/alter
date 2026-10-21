@@ -191,11 +191,17 @@ sequenceDiagram
     M-->>R: daemon.status missing
     Note over R: 显示「alterd 未找到」, 窗口保持打开
   else 找到二进制
-    M->>D: spawn alterd run, 透传 ALTER_HOME
+    M->>D: spawn alterd run --exit-on-stdin-close<br/>stdin 为 Main 独占写端的管道, 透传 ALTER_HOME
     D->>H: 对 alterd.lock 取排他锁
     alt 锁被另一个 alterd 持有
       D-->>M: 退出码 3, JSON 日志 already running
-      M-->>R: daemon.status exited
+      M->>H: 读取 alterd.json, 检查 pid 存活
+      alt pid 存活
+        M-->>R: daemon.status running, 外部实例的 pid
+        Note over M: 复用该实例, app 退出时不停它
+      else 读不到或 pid 已死
+        M-->>R: daemon.status exited
+      end
     else 取到锁
       D->>H: Store::open, alter.db 迁移到 version 1
       D->>H: 覆盖写 alterd.json (version, pid, startedAt, dbPath)
@@ -209,12 +215,16 @@ sequenceDiagram
   M->>D: app 退出, 发送 SIGTERM
   D->>H: 删除 alterd.json
   D-->>M: 退出码 0 (2 s 内, 超时则 SIGKILL)
+  opt app 被强制结束 (SIGKILL / 崩溃)
+    Note over D: 内核关闭 stdin 管道写端, alterd 读到 EOF
+    D->>H: 删除 alterd.json, 退出码 0 (日志 signal=stdin-eof)
+  end
 ```
 <!-- /dflow:diagram -->
 
 - 触发：用户打开 alter.app（开发时为 `bun run dev`）。
-- 步骤：1 Electron Main 依次在 `ALTER_ALTERD_PATH`、`process.resourcesPath/bin/alterd`、`<repo>/target/debug/alterd` 找 alterd；2 找不到时推 `daemon.status missing`，窗口保持打开；3–4 找到就 spawn `alterd run`，alterd 先对 `alterd.lock` 取排他锁；5–6 锁被占用时 alterd 以退出码 3 退出，Main 推 `exited`；7–8 取到锁后 `Store::open` 迁移 `alter.db`，覆盖写 `alterd.json`；9–10 Main 每 100 ms 读一次健康文件，不设截止时间，直到看到它或子进程退出，然后推 `running` 与 pid；11–13 app 退出时 Main 拦下 `before-quit`，发 SIGTERM，alterd 删除健康文件并以 0 退出，2 秒内没退出则 SIGKILL 并删除 pid 匹配的健康文件。
-- 失败处理：alterd 的 stderr 经管道由 Main 转发，不继承主进程 stdio，避免拖住 app 退出；alterd 其他错误（打开数据库失败等）以退出码 1 退出并写 `code=1` 的 JSON 日志，Main 推 `exited`。app 被强制结束时 alterd 不会收到 SIGTERM，修复见进行中的需求 `fix-orphan-alterd`。
+- 步骤：1 Electron Main 依次在 `ALTER_ALTERD_PATH`、`process.resourcesPath/bin/alterd`、`<repo>/target/debug/alterd` 找 alterd；2 找不到时推 `daemon.status missing`，窗口保持打开；3–4 找到就 spawn `alterd run --exit-on-stdin-close`，stdin 是只有 Main 持有写端的管道，alterd 先对 `alterd.lock` 取排他锁；5–6 锁被占用时 alterd 以退出码 3 退出，Main 读 `alterd.json`，其中 pid 存活就复用这个外部实例（推 `running` 与它的 pid，app 退出时不停它），否则推 `exited`；7–8 取到锁后 `Store::open` 迁移 `alter.db`，覆盖写 `alterd.json`；9–10 Main 每 100 ms 读一次健康文件，不设截止时间，直到看到它或子进程退出，然后推 `running` 与 pid；11–13 app 退出时 Main 拦下 `before-quit`，发 SIGTERM，alterd 删除健康文件并以 0 退出，2 秒内没退出则 SIGKILL 并删除 pid 匹配的健康文件。
+- 失败处理：alterd 的 stderr 经管道由 Main 转发，不继承主进程 stdio，避免拖住 app 退出；alterd 其他错误（打开数据库失败等）以退出码 1 退出并写 `code=1` 的 JSON 日志，Main 推 `exited`。app 被强制结束（SIGKILL、崩溃）时 `before-quit` 不执行，但内核会关闭 stdin 管道写端，alterd 读到 EOF（或读取出错）后走同一条清理路径：删除健康文件，退出码 0。此时 stderr 管道也已断开，alterd 关闭了 tracing 的内部错误报告，写日志失败不会 panic。复用外部实例后 Main 不再监视它，外部实例之后退出时页面仍显示「运行中」（后续由网关握手 / 心跳处理）。
 - 代码入口：`alter:apps/browser/src/main/daemon.ts`（`resolveAlterdPath`、`DaemonSupervisor`）、`alter:apps/browser/src/main/index.ts`（`before-quit`）、`alter:crates/alterd/src/lifecycle.rs`（`run`）、`alter:crates/alter-core/src/health.rs`。
 
 ## 未展开的流程

@@ -29,3 +29,20 @@
 - WHEN `<ALTER_HOME>/alterd.json` 已存在且其中 `pid` 为 999999（不存在的进程），启动 `alterd run`
 - THEN 1 秒内 `alterd.json` 被改写，`pid` 等于新进程的 pid
 - AND 启动后 1 秒时新进程仍在运行
+
+### Requirement: 随宿主退出
+系统 SHALL 在 `alterd run --exit-on-stdin-close` 的 stdin 到达 EOF 或读取出错后 2 秒内退出：退出码为 0，并删除 `ALTER_HOME/alterd.json`。不带该参数时，stdin 的状态不影响 alterd 的运行。
+
+#### Scenario: stdin 写端关闭后退出
+- WHEN 以空的临时目录为 `ALTER_HOME`，用管道作 stdin 运行 `alterd run --exit-on-stdin-close`，等 `ALTER_HOME/alterd.json` 出现后关闭管道写端
+- THEN alterd 在 2 秒内退出，退出码为 0
+- AND `ALTER_HOME/alterd.json` 不存在
+
+#### Scenario: 不带参数时忽略 stdin
+- WHEN 以空的临时目录为 `ALTER_HOME`，stdin 为 `/dev/null`（立即 EOF），运行不带参数的 `alterd run`
+- THEN 3 秒后 alterd 仍在运行，`ALTER_HOME/alterd.json` 存在且其中 pid 为该进程
+
+#### Scenario: stdin 读取出错时退出
+- WHEN 以空的临时目录为 `ALTER_HOME`，以只读打开的一个目录作 stdin（读取立即返回 EISDIR 错误）运行 `alterd run --exit-on-stdin-close`
+- THEN alterd 在 2 秒内退出，退出码为 0
+- AND `ALTER_HOME/alterd.json` 不存在

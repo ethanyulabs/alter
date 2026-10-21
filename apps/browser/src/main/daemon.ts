@@ -39,6 +39,18 @@ function healthPid(home: string): number | undefined {
   }
 }
 
+/** pid 对应的进程是否存活；EPERM 说明进程在但无权发信号，也算存活（与 alter-core 的 health::is_alive 一致）。 */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/** alterd 发现已有实例在运行时的退出码（见 api.md「进程状态」）。 */
+const EXIT_ALREADY_RUNNING = 3;
 const POLL_INTERVAL_MS = 100;
 /** 发出 SIGTERM 后等待 alterd 自行退出的上限，超时改用 SIGKILL。 */
 const STOP_TIMEOUT_MS = 2_000;
@@ -61,15 +73,27 @@ export class DaemonSupervisor {
       return;
     }
     const home = alterHome();
-    // stderr 用管道转发而不是继承：alterd 不能持有主进程自己的 stdio，否则会拖住主进程的退出
-    const child = spawn(path, ["run"], { stdio: ["ignore", "ignore", "pipe"] });
+    // stderr 用管道转发而不是继承：alterd 不能持有主进程自己的 stdio，否则会拖住主进程的退出。
+    // stdin 是一根只由本进程持有写端的管道：主进程结束（包括被 SIGKILL）时内核关闭写端，
+    // alterd 读到 EOF 后自行退出。运行期间不要对 child.stdin 调用 end()。
+    const child = spawn(path, ["run", "--exit-on-stdin-close"], {
+      stdio: ["pipe", "ignore", "pipe"],
+    });
     child.stderr?.pipe(process.stderr);
     this.child = child;
     this.setStatus({ state: "starting", path });
     // 文件存在但无法执行（权限等）时 spawn 以 error 事件报告，不能让它变成主进程的未捕获异常
     child.on("error", () => this.setStatus({ state: "missing", path }));
-    child.on("exit", () => {
-      if (!this.stopping) this.setStatus({ state: "exited", path });
+    child.on("exit", (code) => {
+      if (this.stopping) return;
+      // 退出码 3：同一 ALTER_HOME 已有 alterd 在运行（例如 app 之外手动拉起的），复用它。
+      // 它不是本进程拉起的，stop() 不会去停它：这个子进程已经退出，stop() 直接返回。
+      const existing = code === EXIT_ALREADY_RUNNING ? healthPid(home) : undefined;
+      if (existing !== undefined && isAlive(existing)) {
+        this.setStatus({ state: "running", pid: existing, path });
+      } else {
+        this.setStatus({ state: "exited", path });
+      }
     });
 
     // 一直轮询到看见健康文件或子进程退出：启动慢（比如以后的大迁移）也不会卡在「启动中」

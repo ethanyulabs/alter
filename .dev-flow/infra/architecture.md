@@ -86,7 +86,7 @@ flowchart LR
 ## 横切关注点
 - 认证鉴权：Gateway 每个连接需 `Authorization: Bearer <token>`；token 由 alterd 启动时生成并写入 `gateway.json`。Shell Control Channel 靠 socket 文件权限（0600）。无多用户概念。
 - 可观测性：alterd 用 `tracing` 输出 JSON 行日志到 `~/Library/Logs/alter/alterd.log`（按天滚动，保留 7 天）；每个 agent 动作一条 receipt 日志：`task_space_id`、`label`、`method`、`duration_ms`、`ok`、`error_code`。Electron Main 日志到 `~/Library/Logs/alter/app.log`。`alter status` 打印两者的最近错误。
-- 进程存活：alterd 启动后原子写入 `~/Library/Application Support/alter/alterd.json`（`version`、`pid`、`startedAt`、`dbPath`），收到 SIGTERM / SIGINT 后删除。单实例由 alterd 对同目录的 `alterd.lock` 取排他锁保证，锁随进程结束由内核释放，崩溃也不会留下死锁；alter CLI 与 Electron Main 用健康文件加 `kill(pid, 0)`（`EPERM` 也算存活）判断 alterd 是否在运行。它与含 token 的 `gateway.json` 是两个文件，网关需求再加握手确认。骨架阶段 alterd 的 tracing 日志只写 stderr，由 Electron Main 转发。
+- 进程存活：alterd 启动后原子写入 `~/Library/Application Support/alter/alterd.json`（`version`、`pid`、`startedAt`、`dbPath`），收到 SIGTERM / SIGINT 后删除；由 app 托管时还会在 stdin 管道关闭（app 被强制结束）后删除并退出。单实例由 alterd 对同目录的 `alterd.lock` 取排他锁保证，锁随进程结束由内核释放，崩溃也不会留下死锁；alter CLI 与 Electron Main 用健康文件加 `kill(pid, 0)`（`EPERM` 也算存活）判断 alterd 是否在运行。它与含 token 的 `gateway.json` 是两个文件，网关需求再加握手确认。骨架阶段 alterd 的 tracing 日志只写 stderr，由 Electron Main 转发。
 - 配置与密钥：用户配置在 `~/Library/Application Support/alter/config.toml`（自动归档阈值、page budget 等）；Keychain 密钥只在导入任务的内存里存在；没有任何云端配置。
 - 错误处理：Gateway 错误统一为 `{code, message, data}`，错误码见 api.md；SDK 把错误码映射为异常类名；CLI 用退出码 0 / 1（业务错误）/ 2（无法连接或未授权）。agent 侧的原则：`E_USER_CONTROL` 必须停止，不重试。
 - 性能预算（宪章门禁，由基准测试守住）：`alter --version` 冷启动 < 20 ms；Gateway 收到 `page.click` 到发出 CDP 命令的内部开销 < 5 ms；`page.snapshot` 对 2000 节点页面 < 150 ms（含 CDP 往返）；Electron 侧边栏在 500 标签下切换 Space < 50 ms。数值在建网关需求时用真实基准校准。
