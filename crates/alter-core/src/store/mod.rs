@@ -1,10 +1,15 @@
 //! SQLite 存储：打开数据目录下的 `alter.db` 并应用迁移。
 
 mod migrate;
+mod spaces;
+mod tabs;
 
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
+
+pub use spaces::SpaceRow;
+pub use tabs::TabRow;
 
 /// 打开或迁移数据库时的错误。
 #[derive(Debug, thiserror::Error)]

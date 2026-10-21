@@ -48,3 +48,16 @@ Electron 壳：窗口、托管 alterd、给 Renderer 的 IPC。
 - WHEN 以空的临时目录为 `ALTER_HOME`，先在 app 之外运行 `alterd run`（pid 例如 52001），等 `alterd.json` 出现后启动 app
 - THEN 3 秒内页面文本包含「alterd 运行中」，`daemon.status` 的 pid 为 52001
 - AND 正常退出 app 后 2 秒，pid 52001 仍存活，`ALTER_HOME/alterd.json` 仍存在且 pid 为 52001
+
+### Requirement: 后退、前进与刷新
+系统 SHALL 在侧边栏提供后退、前进、刷新三个按钮，作用于当前激活标签；没有可后退或可前进的历史时，对应按钮不可点击。
+
+#### Scenario: 后退与前进
+- WHEN 激活标签先打开本地测试页 `/a`，再在当前标签打开 `/b`
+- THEN 前进按钮不可点击
+- AND 点击后退后 2 秒内页面 URL 为 `/a` 的地址，前进按钮可点击
+- AND 再点击前进后 2 秒内页面 URL 为 `/b` 的地址
+
+#### Scenario: 刷新
+- WHEN 激活标签显示本地测试页 `/count`（服务器记录它被请求的次数，当前为 1），用户点击刷新
+- THEN 2 秒内服务器记录的 `/count` 请求次数为 2

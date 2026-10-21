@@ -10,6 +10,7 @@
     "e2e": "cargo build -q -p alterd && bun run build && playwright test -c e2e/playwright.config.ts"
   },
   "dependencies": {
+    "@alter/protocol": "workspace:*",
     "solid-js": "^1.9.17"
   },
   "devDependencies": {

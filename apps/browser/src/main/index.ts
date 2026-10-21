@@ -4,7 +4,23 @@ import { join } from "node:path";
 import { app, BrowserWindow, ipcMain } from "electron";
 
 import { DAEMON_STATUS_CHANNEL } from "../shared/daemon";
-import { DaemonSupervisor } from "./daemon";
+import {
+  NAV_CHANNELS,
+  SHELL_OPEN_CHANNEL,
+  SHELL_VIEW_CHANNEL,
+  TAB_ACTIVATE_CHANNEL,
+  TAB_CLOSE_CHANNEL,
+  type NavAction,
+  type OpenRequest,
+  type TabRequest,
+  type ShellView,
+} from "../shared/shell";
+import { alterHome, DaemonSupervisor } from "./daemon";
+import { ShellLink } from "./shell-link";
+import { TabViews } from "./tab-views";
+
+// Chromium 的用户数据（各 Space 的 partition、缓存）放在 ALTER_HOME 下，必须在 ready 之前设置
+app.setPath("userData", join(alterHome(), "chromium"));
 
 function createMainWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -27,16 +43,68 @@ function createMainWindow(): BrowserWindow {
   return win;
 }
 
-const daemon = new DaemonSupervisor((status) => {
+function broadcast(channel: string, payload: unknown): void {
   for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send(DAEMON_STATUS_CHANNEL, status);
+    win.webContents.send(channel, payload);
+  }
+}
+
+let shellView: ShellView = { state: null, nav: { canGoBack: false, canGoForward: false, url: "" } };
+
+function setShellView(next: ShellView): void {
+  shellView = next;
+  broadcast(SHELL_VIEW_CHANNEL, shellView);
+}
+
+let tabViews: TabViews | undefined;
+
+const shell = new ShellLink(join(alterHome(), "shell.sock"), (cmd) => {
+  if (cmd.type === "shell.stateChanged") {
+    const state = { activeSpaceId: cmd.activeSpaceId, spaces: cmd.spaces, tabs: cmd.tabs };
+    setShellView({ ...shellView, state, error: undefined });
+    tabViews?.apply(state);
+  } else if (cmd.type === "shell.navigate") {
+    tabViews?.navigate(cmd.tabId, cmd.url);
+  } else if (cmd.type === "shell.error") {
+    setShellView({ ...shellView, error: { code: cmd.code, message: cmd.message } });
   }
 });
 
+const daemon = new DaemonSupervisor((status) => {
+  broadcast(DAEMON_STATUS_CHANNEL, status);
+  // alterd 就绪（含复用已在运行的实例）后连接 Shell Control Channel
+  if (status.state === "running") shell.connect();
+});
+
 ipcMain.handle(DAEMON_STATUS_CHANNEL, () => daemon.current());
+ipcMain.handle(SHELL_VIEW_CHANNEL, () => shellView);
+ipcMain.on(TAB_ACTIVATE_CHANNEL, (_event, { tabId }: TabRequest) => {
+  shell.send({ type: "shell.event.tabActivated", tabId });
+});
+ipcMain.on(TAB_CLOSE_CHANNEL, (_event, { tabId }: TabRequest) => {
+  shell.send({ type: "shell.event.tabClosed", tabId });
+});
+for (const [action, channel] of Object.entries(NAV_CHANNELS) as [NavAction, string][]) {
+  ipcMain.on(channel, () => tabViews?.navAction(action));
+}
+ipcMain.on(SHELL_OPEN_CHANNEL, (_event, request: OpenRequest) => {
+  const state = shellView.state;
+  if (!state) return;
+  const spaceId = state.activeSpaceId;
+  // 不是新标签模式且当前 Space 有激活标签时在该标签打开，否则新建标签
+  const active = state.tabs.find((t) => t.spaceId === spaceId && t.active);
+  const tabId = request.newTab ? undefined : active?.id;
+  shell.send({ type: "shell.event.openRequested", spaceId, input: request.input, ...(tabId ? { tabId } : {}) });
+});
 
 app.whenReady().then(() => {
-  createMainWindow();
+  const win = createMainWindow();
+  tabViews = new TabViews(
+    win,
+    (event) => shell.send(event),
+    (nav) => setShellView({ ...shellView, nav }),
+  );
+  if (shellView.state) tabViews.apply(shellView.state);
   daemon.start();
 });
 

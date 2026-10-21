@@ -1,0 +1,120 @@
+/* 侧边栏布局；内容区由主进程的 WebContentsView 覆盖 */
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 13px;
+}
+.layout {
+  display: flex;
+  height: 100%;
+}
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  box-sizing: border-box;
+  padding: 8px;
+  background: #f4f4f5;
+  border-right: 1px solid #e4e4e7;
+}
+.sidebar h1 {
+  margin: 4px 0 8px;
+  font-size: 15px;
+}
+.tabs {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.tabs li {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: default;
+}
+.tabs li .favicon {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  flex: none;
+}
+.tabs li .title {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tabs li button {
+  visibility: hidden;
+  border: none;
+  background: transparent;
+  color: #71717a;
+}
+.tabs li button::before {
+  content: "×";
+}
+.tabs li:hover button {
+  visibility: visible;
+}
+.tabs li.active {
+  background: #e4e4e7;
+}
+.sidebar footer p {
+  margin: 4px 0 0;
+  color: #71717a;
+}
+.content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #a1a1aa;
+}
+.address {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.address input {
+  padding: 6px 8px;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  background: #fff;
+}
+.address button {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  text-align: left;
+  color: #52525b;
+}
+.address button:hover {
+  background: #e4e4e7;
+}
+.nav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.nav button {
+  width: 28px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+}
+.nav button:hover:not(:disabled) {
+  background: #e4e4e7;
+}
+.address .error {
+  margin: 0;
+  color: #dc2626;
+}

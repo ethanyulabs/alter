@@ -8,6 +8,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use alter_core::protocol::HealthFile;
 use alter_core::store::{Store, db_path};
 use anyhow::Context;
+
+use crate::shell;
+use crate::tabs::TabService;
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::oneshot;
 
@@ -58,6 +61,14 @@ async fn run_async(home: &Path, exit_on_stdin_close: bool) -> anyhow::Result<Exi
         .conn()
         .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
         .context("读取数据库版本失败")?;
+
+    // 先让 shell.sock 可连，再写健康文件：外部看到 alterd.json 时就能连接
+    let (tab_service, snapshots) = TabService::new(store)?;
+    let sock = shell::sock_path(home);
+    let listener = shell::bind(&sock).context("监听 shell.sock 失败")?;
+    let (requests, request_rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(tab_service.run(request_rx));
+    tokio::spawn(shell::serve(listener, snapshots, requests));
     let health = HealthFile {
         version: env!("CARGO_PKG_VERSION").to_owned(),
         pid: std::process::id(),
@@ -87,6 +98,7 @@ async fn run_async(home: &Path, exit_on_stdin_close: bool) -> anyhow::Result<Exi
     tracing::info!(signal, "收到终止信号");
 
     alter_core::health::remove(home).context("删除健康文件失败")?;
+    let _ = std::fs::remove_file(&sock);
     tracing::info!(code = 0, "alterd 已退出");
     drop(lock);
     Ok(ExitCode::SUCCESS)
@@ -116,7 +128,7 @@ async fn wait_stdin_closed(
     }
 }
 
-fn now_millis() -> i64 {
+pub(crate) fn now_millis() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)

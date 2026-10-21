@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { _electron as electron, type ElectronApplication } from "@playwright/test";
+import { _electron as electron, type ElectronApplication, type TestInfo } from "@playwright/test";
 
 /** electron-vite 构建出的主进程入口。 */
 export const MAIN_ENTRY = resolve(__dirname, "../out/main/index.js");
@@ -19,10 +19,27 @@ export function tempHome(): string {
  */
 export async function launchApp(env: Record<string, string> = {}): Promise<ElectronApplication> {
   const extra = process.env.ALTER_E2E_ARGS?.split(" ").filter(Boolean) ?? [];
-  return electron.launch({
+  const app = await electron.launch({
     args: [MAIN_ENTRY, ...extra],
     env: { ...process.env, ALTER_HOME: tempHome(), ...env } as Record<string, string>,
   });
+  // 收集主进程（含转发的 alterd stderr）的输出，用例失败时由 dumpLogsOnFailure 打印
+  const pid = app.process().pid;
+  for (const stream of [app.process().stdout, app.process().stderr]) {
+    stream?.on("data", (chunk: Buffer) => logs.push(`[pid ${pid}] ${chunk.toString().trimEnd()}`));
+  }
+  app.process().on("exit", (code, signal) => logs.push(`[pid ${pid}] exited code=${code} signal=${signal}`));
+  return app;
+}
+
+const logs: string[] = [];
+
+/** 用例失败时打印本用例期间启动的 app 的输出；每个用例结束都清空。 */
+export function dumpLogsOnFailure(testInfo: TestInfo): void {
+  if (testInfo.status !== testInfo.expectedStatus && logs.length > 0) {
+    console.log(`--- app 输出（${testInfo.title}）---\n${logs.join("\n")}`);
+  }
+  logs.length = 0;
 }
 
 /** 每 50 ms 检查一次，直到条件成立或超时；返回条件最终是否成立。 */

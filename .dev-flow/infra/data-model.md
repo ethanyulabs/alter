@@ -187,6 +187,10 @@ CREATE TABLE imports (
 ## 规则
 - 一个 Space 一个 partition：partition 名由 `spaces.id` 派生（`persist:space-<id>`），不单独存储；删除 Space 时 alterd 负责清理 partition 数据目录。
 - `tabs.space_id` 不可变：标签不能在 Space 之间移动（避免 Cookie 隔离被绕过）；需要时复制 URL 新建。
+- 激活标签不单独存储：每个 Space 中未归档且 `last_active_at` 最大的标签即激活标签；写入时取「同 Space 最大值 + 1」与当前时间中较大者，保证严格递增。激活的 Space 目前取未归档 Space 中 `position` 最小的（add-space-management 再持久化）。
+- 关闭标签即归档：只置 `tabs.archived_at`，不删除行；`position` 只增不重排，留下的空洞不影响排序。
+- 首次启动（没有未归档的 Space）时建默认 Space `Personal`（颜色取列默认值 `#6366f1`）。
+- partition 的磁盘目录是 `ALTER_HOME/chromium/Partitions/space-<id 小写>`（Electron 44 实测会转成小写），清理时按小写匹配。
 - 固定标签（`pinned = 1`）不参与自动归档；归档只设 `archived_at`，不删除；恢复即清空该字段并追加到列表末尾。
 - `split_group` 内的标签必须属于同一 Space，由代码保证；分屏解散即置 NULL。
 - `task_pages.label` 在 TaskSpace 内唯一，关闭后不复用；一个活跃标签同一时刻只能被一个 TaskSpace 托管（部分唯一索引）。
