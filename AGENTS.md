@@ -35,7 +35,7 @@ alter 是一个 macOS 浏览器，给人和 AI agent 共用：对人提供 Arc �
 
 ## 技术栈
 - Rust（stable，edition 2024）：tokio、chromiumoxide（CDP）、rusqlite（bundled SQLite，WAL）、security-framework（Keychain）、serde、ts-rs（导出 TS 类型）、clap、assert_cmd。
-- TypeScript（Bun 作为运行时与包管理器，版本锁在 `.bun-version`）：Electron 44、electron-vite 6、SolidJS、Vite、eslint + typescript-eslint、tsc 6.0（typescript-eslint 尚不支持 TS 7，勿升级）、Playwright（Electron 端到端）。bun 用隔离链接，apps/browser 的命令行工具只在它自己的 `node_modules/.bin`，根脚本经 `bun run --cwd apps/browser` 转发。
+- TypeScript（Bun 作为运行时与包管理器，版本锁在 `.bun-version`）：Electron 44、electron-vite 6、SolidJS、Vite、eslint + typescript-eslint、tsc 6.0（typescript-eslint 尚不支持 TS 7，勿升级）、Playwright（Electron 端到端）。仓库根的 `.npmrc` 固定公共 registry（个人 `~/.npmrc` 的镜像地址写进 `bun.lock` 会让 CI 下载失败），bun 用隔离链接，apps/browser 的命令行工具只在它自己的 `node_modules/.bin`，根脚本经 `bun run --cwd apps/browser` 转发。
 - 存储：SQLite 单文件 `~/Library/Application Support/alter/alter.db`；Cookie / storage 由 Chromium partition 管理。
 - 打包与分发：electron-builder 出 DMG（内含 alterd、alter、Bun），GitHub Releases + GitHub Pages。
 
