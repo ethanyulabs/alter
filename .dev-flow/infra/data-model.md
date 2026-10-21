@@ -194,4 +194,5 @@ CREATE TABLE imports (
 - 时间戳全部 UTC 毫秒整数；没有软删除之外的删除，`ON DELETE CASCADE` 只在删除 Space 时触发。
 - 导入去重：书签按（父节点、URL、标题）唯一；历史按（URL、访问时间）唯一，重复导入是幂等的。
 - 写入只经 alterd 的单写连接；Electron 和 CLI 不打开数据库文件。
-- 迁移：`crates/alter-core/migrations/NNNN_<name>.sql` 按序号执行，每个文件一个事务，执行后写 `schema_version`；alterd 启动时自动迁移，降级不支持（备份文件 `alter.db.bak-<version>` 由升级前自动生成）。
+- 迁移：`crates/alter-core/migrations/NNNN_<name>.sql` 按序号执行，每个文件一个事务，执行后写 `schema_version`；alterd 启动时自动迁移，降级不支持。备份文件 `alter.db.bak-<version>` 计划在升级前自动生成，在第一个非初始迁移（0002）时实现，目前只有 0001。
+- 数据目录（`ALTER_HOME`）里除 `alter.db`（及 WAL 文件）外还有 alterd 的健康文件 `alterd.json` 与实例锁 `alterd.lock`，二者都不是数据库内容，格式见 api.md「进程状态」。

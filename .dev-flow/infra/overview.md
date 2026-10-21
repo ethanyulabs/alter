@@ -10,7 +10,7 @@ alter 是一个 macOS 浏览器，给人和 AI agent 共用。对人，它提供
 ## 仓库
 | 仓库 | 路径 | 角色 | 技术栈 | 测试命令 |
 |---|---|---|---|---|
-| alter | . | 单仓多包：Rust 核心（alterd、CLI、core）、Electron 壳、SDK、协议类型、agent skill、主页、安装脚本 | Rust（tokio、chromiumoxide、rusqlite）、TypeScript（Bun、SolidJS、Vite、Electron）、SQLite | `cargo test && bun test`（TBD — 由第一个需求的 T1 建立后回填 config.json） |
+| alter | . | 单仓多包：Rust 核心（alterd、CLI、core）、Electron 壳、SDK、协议类型、agent skill、主页、安装脚本 | Rust（tokio、chromiumoxide、rusqlite）、TypeScript（Bun、SolidJS、Vite、Electron）、SQLite | `cargo test && bun test`（全部门禁 `bun run ci:check`） |
 
 ## 术语表
 | 术语 | 含义 |
@@ -23,6 +23,8 @@ alter 是一个 macOS 浏览器，给人和 AI agent 共用。对人，它提供
 | Peek | 悬停侧边栏链接时的浮层预览，不切换当前标签。 |
 | 自动归档 | 非固定标签超过不活跃阈值后移出侧边栏（`tabs.archived_at`），可在归档列表恢复。 |
 | alterd | Rust 守护进程，随 alter.app 启动，唯一写 SQLite、唯一发 CDP 的进程。 |
+| ALTER_HOME | 数据目录，默认 `~/Library/Application Support/alter`，环境变量覆盖；测试一律指向临时目录。 |
+| 健康文件 | `ALTER_HOME/alterd.json`：alterd 运行时写入的 `{version, pid, startedAt, dbPath}`，CLI 与 app 据此判断 alterd 是否在运行。 |
 | Gateway | alterd 对外的本机 WebSocket JSON-RPC 接口，token 鉴权；SDK 和 CLI 都走它。 |
 | Shell Control Channel | alterd 与 Electron Main 之间的本地 Unix socket，JSON 行协议：alterd 下发建 / 关 / 激活标签与叠层指令，Electron 上报用户事件。 |
 | CDP | Chrome DevTools Protocol。Chromium 开 remote-debugging 端口，alterd 的 CdpMux 直连，Playwright 也可经 alterd 转发的端点直连。 |

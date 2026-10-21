@@ -58,16 +58,23 @@ Shell Control Channel（alterd ↔ Electron Main，Unix socket `shell.sock`，�
 | Electron → alterd | `shell.event.userTookControl` / `ownershipReturned` | 用户接管 / 交还 | `{taskSpaceId}` |
 | Electron → alterd | `shell.event.cdpReady` | Chromium remote-debugging 端口就绪 | `{cdpPort}` |
 
-CLI（`alter`，所有子命令读同一个 `gateway.json`；`ALTER_HOME` 覆盖数据目录以便测试）：
+CLI（`alter`，除 `status` 外的子命令读同一个 `gateway.json`；`ALTER_HOME` 覆盖数据目录以便测试）：
 
 | 子命令 | 用途 | 退出码 |
 |---|---|---|
 | `alter nodejs [-e <code>]`（stdin heredoc 或 `-e`） | 用打包的 Bun 运行脚本，预置 `taskSpace`、`takeOverTaskSpace`、`claimTaskSpace`、`listTaskSpaces` 全局函数 | 脚本退出码；无法连接 2 |
 | `alter spaces list [--json]` | 列出 Space | 0 |
 | `alter import --from chrome\|arc [--profile <path>] --space <id> [--items bookmarks,history,cookies]` | 导入并等待完成，打印计数 | 0；部分成功 0 并打印警告；来源不存在 1 |
-| `alter status [--json]` | app / alterd 是否运行、版本、端口、最近错误 | 运行中 0，未运行 1 |
+| `alter status [--json]` | alterd 是否运行与版本（读 `alterd.json`，格式见下文「进程状态」）；端口与最近错误待网关需求补充 | 运行中 0，未运行或残留 1 |
 | `alter upgrade [--check]` | 从 GitHub Releases 下载并安装新版 DMG | 0；无更新 0；下载失败 1 |
 | `alter --version` | 版本 | 0 |
+
+进程状态（add-workspace-skeleton 已实现，三个进程共用 `ALTER_HOME`，未设置时为 `~/Library/Application Support/alter`）：
+
+- 健康文件 `alterd.json`：alterd 写，CLI 与 Electron Main 读；`{"version": "0.1.0", "pid": 12345, "startedAt": 1760918400000, "dbPath": "/abs/path/alter.db"}`，先写临时文件再 rename。Rust 类型 `alter_core::protocol::HealthFile`，TS 类型由 `packages/protocol` 生成。
+- `alterd run` 退出码：0 正常退出（SIGTERM / SIGINT）；3 已有实例持有 `alterd.lock`；1 其他错误。stderr 只输出 tracing 的 JSON 行，退出码 1 与 3 的那条带 `code` 字段。
+- `alter status`：运行中输出 `alterd running (pid <n>, version <v>)`；无文件输出 `not running`；文件在但 pid 已死输出 `not running (stale)`。`--json` 为 `{"running": true, "pid": n, "version": "…", "dbPath": "…"}`、`{"running": false}` 或 `{"running": false, "stale": true}`。
+- Electron IPC（Main → Renderer，经 preload 的 `window.alter`）：通道 `daemon.status`，载荷 `{state: "starting"|"running"|"missing"|"exited", pid?, path?}`；Renderer 显示 `alterd 启动中 / 运行中 / 未找到 / 已退出`。
 
 SDK（`packages/sdk`，Bun 内全局可用）：`taskSpace(name|id)`、`takeOverTaskSpace(id)`、`claimTaskSpace(id)`、`listTaskSpaces()`；TaskSpace 对象：`spaceId`、`name`、`ownership`、`page(label)`、`userPage()`、`pages()`、`tabs()`、`newPage()`、`adopt()`、`release()`、`handOff()`、`waitForControl()`、`finish({keep})`、`cdp()`；Page 对象一一对应上表 `page.*` 方法，外加 `mouse.*`、`keyboard.*`、`waitForEvent("popup"|"download")`、`waitForFileChooser()`。与 ego-browser 的 API 形状保持一致，方便 skill 迁移。
 
