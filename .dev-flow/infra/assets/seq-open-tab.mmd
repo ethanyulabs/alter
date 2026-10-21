@@ -1,27 +1,33 @@
 sequenceDiagram
   autonumber
   participant U as 用户
-  participant R as Renderer (CommandBar)
-  participant M as Electron Main (ShellControl)
-  participant D as alterd (TaskSpaceManager / Store)
-  participant C as Chromium (BrowserView)
-  U->>R: Cmd+T 输入 "github.com" 回车
-  R->>M: IPC tab.open {spaceId, input}
-  M->>D: shell.event.openRequested {spaceId, url}
-  D->>D: 解析输入（URL / 搜索 / 已有标签）
-  D->>D: INSERT tabs(space_id, url, position)
-  D->>M: shell.createTab {tabId, spaceId, url}
-  M->>C: new BrowserView(partition=persist:space-<id>) 并 loadURL
-  C-->>M: did-finish-load / 标题 / favicon
-  M->>D: shell.event.tabUpdated {tabId, title, favicon}
-  D->>D: UPDATE tabs SET title, favicon
-  D-->>R: 事件 tabs.changed（经 Main 转发）
-  R-->>U: 侧边栏出现新标签并激活
-  alt 输入匹配已打开标签
-    D->>M: shell.activateTab {tabId}
-    M-->>R: 事件 tabs.changed
+  participant R as Renderer (Sidebar / AddressBar)
+  participant M as Electron Main (ShellLink / TabViews)
+  participant D as alterd (ShellServer / TabService)
+  participant C as Chromium (WebContentsView)
+  U->>R: 点「新标签」，输入 github.com 回车
+  R->>M: IPC shell.open {input, newTab: true}
+  M->>D: shell.event.openRequested {spaceId, input}
+  D->>D: 规范化 → https://github.com
+  D->>D: INSERT tabs（末尾 position，last_active_at 最大）
+  D-->>M: shell.stateChanged（广播给所有连接）
+  M->>C: 激活标签无视图 → new WebContentsView(partition) + loadURL
+  M-->>R: IPC shell.state，侧边栏出现并激活新行
+  C-->>M: page-title-updated / page-favicon-updated / did-navigate（主框架）
+  M->>D: shell.event.tabUpdated {tabId, title, faviconUrl, url}
+  D->>D: UPDATE tabs（值有变化才广播）
+  D-->>M: shell.stateChanged
+  M-->>R: 侧边栏显示标题与图标
+  alt 不是新标签模式且有激活标签
+    M->>D: openRequested 带 tabId
+    D-->>M: shell.navigate {tabId, url}（只回发送方）
+    M->>C: 该视图 loadURL(url)
   end
-  alt Space 不存在或已归档
-    D-->>M: 错误 E_SPACE_NOT_FOUND
-    M-->>R: 命令栏提示「Space 不存在」
+  alt 网页 target=_blank / window.open
+    C-->>M: setWindowOpenHandler(url)，拒绝新窗口
+    M->>D: openRequested {spaceId, input: url}
+  end
+  alt Space / 标签不存在或输入为空
+    D-->>M: shell.error {code}（只回发送方）
+    M-->>R: 地址框下方显示错误
   end

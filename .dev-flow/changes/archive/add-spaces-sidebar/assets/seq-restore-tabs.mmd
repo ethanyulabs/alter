@@ -1,0 +1,25 @@
+sequenceDiagram
+  autonumber
+  participant M as Electron Main
+  participant D as alterd
+  participant H as ALTER_HOME
+  participant R as Renderer
+  participant V as WebContentsView
+  M->>M: app.setPath(userData, ALTER_HOME/chromium)
+  M->>D: spawn alterd run --exit-on-stdin-close
+  D->>H: 打开 alter.db，确保默认 Space
+  D->>H: 删除残留的 shell.sock，bind 并 chmod 0600
+  D->>H: 写 alterd.json
+  M->>D: 连接 shell.sock
+  D-->>M: shell.stateChanged（未归档标签按 position 排序，active 取 last_active_at 最大）
+  M-->>R: IPC shell.state，侧边栏渲染全部行
+  M->>V: 只为激活标签创建视图并 loadURL
+  R->>M: 用户点击另一行 tab.activate
+  M->>D: shell.event.tabActivated {tabId}
+  D->>H: UPDATE tabs SET last_active_at
+  D-->>M: shell.stateChanged
+  M->>V: 该标签首次激活 → 创建视图并 loadURL
+  alt shell.sock 路径超过 103 字节
+    D-->>M: 退出码 1，JSON 日志 code=1
+    M-->>R: daemon.status exited
+  end

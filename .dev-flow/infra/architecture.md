@@ -9,7 +9,7 @@ flowchart LR
   sdk[alter-sdk<br/>TS, Bun 运行]:::backend
   subgraph app [alter.app（Electron 壳）]
     renderer[Renderer<br/>Sidebar · CommandBar · SplitView · AgentOverlay]:::frontend
-    main[Electron Main<br/>WindowManager · ShellControl]:::frontend
+    main[Electron Main<br/>ShellLink · TabViews]:::frontend
     chromium[Chromium 渲染进程<br/>每个 Space 一个 partition]:::frontend
   end
   subgraph daemon [alterd（Rust 守护进程）]
@@ -25,7 +25,7 @@ flowchart LR
   gh[[GitHub Releases]]:::external
   user -->|点击 / 快捷键| renderer
   renderer -->|IPC| main
-  main -->|创建 / 销毁 BrowserView<br/>partition=persist:space-id| chromium
+  main -->|创建 / 挂载 WebContentsView<br/>partition=persist:space-id| chromium
   agent -->|alter nodejs 脚本| cli
   cli -->|启动 Bun 加载| sdk
   sdk -->|ws://127.0.0.1 JSON-RPC| gateway
@@ -57,13 +57,13 @@ flowchart LR
 
 | 单元 | 进程 | 语言 | 职责 | 仓库路径 |
 |---|---|---|---|---|
-| alter.app | Electron Main + Renderer + Chromium 渲染进程 | TypeScript（SolidJS） | 窗口、侧边栏 / 命令栏 / 分屏 / agent 叠层、BrowserView 生命周期、Chromium partition | `apps/browser/` |
+| alter.app | Electron Main + Renderer + Chromium 渲染进程 | TypeScript（SolidJS） | 窗口、侧边栏 / 命令栏 / 分屏 / agent 叠层、WebContentsView 生命周期、Chromium partition | `apps/browser/` |
 | alterd | 守护进程，alter.app 启动时以子进程拉起，app 退出时随之退出 | Rust | agent 网关、TaskSpace 状态机、CDP 多路复用、SQLite、导入与 Keychain | `crates/alterd/`（协议与存储在 `crates/alter-core/`） |
 | alter CLI | 用户 / agent 的终端命令，`~/.local/bin/alter` 链到 app 包内 | Rust；`alter nodejs` 启动 Bun 跑 `packages/sdk` | 子命令直连 Gateway；脚本运行时加载 SDK | `crates/alter-cli/`、`packages/sdk/` |
 
 运行时边界：
-- **Chromium 与 Electron Main 之间**：Electron 只创建 / 销毁 BrowserView 并指定 partition；页面内的动作（导航、点击、快照）全部由 alterd 经 CDP 直接下发，不经过 Electron Main，这是低延迟的关键。
-- **alterd 与 Electron Main 之间**：Shell Control Channel（Unix socket，`~/Library/Application Support/alter/shell.sock`）。alterd 是 Space / Tab / TaskSpace 状态的唯一来源，Electron 是它的"显示器和手"。
+- **Chromium 与 Electron Main 之间**：Electron 只创建 / 销毁 WebContentsView 并指定 partition，用户自己的后退 / 前进 / 刷新与页内跳转由 Main 直接调 webContents 再回报 alterd；页面内的动作（导航、点击、快照）全部由 alterd 经 CDP 直接下发，不经过 Electron Main，这是低延迟的关键。
+- **alterd 与 Electron Main 之间**：Shell Control Channel（Unix socket `ALTER_HOME/shell.sock`，0600，alterd 为服务端）。alterd 是 Space / Tab / TaskSpace 状态的唯一来源（TabService 独占数据库写连接），每次状态变化向所有连接广播全量快照；Electron 是它的「显示器和手」，按快照增删、挂载页面视图，并上报用户事件。
 - **alterd 与客户端之间**：Gateway（`ws://127.0.0.1:<port>`，端口随机，写入 `gateway.json`）。SDK、CLI、以及未来的 MCP 适配都只走这一个接口。
 - **Space 之间**：Chromium partition 隔离 Cookie、storage、cache；TaskSpace 不跨 Space。
 
@@ -72,7 +72,7 @@ flowchart LR
 ## 外部依赖
 | 依赖 | 用途 | 负责人 / SLA |
 |---|---|---|
-| Electron（Chromium 内核） | 窗口、BrowserView、partition、remote-debugging 端口 | 开源；跟随 Electron 稳定版，升级走 chore 需求 |
+| Electron（Chromium 内核） | 窗口、WebContentsView、partition、remote-debugging 端口；`userData` 设为 `ALTER_HOME/chromium` | 开源；跟随 Electron 稳定版，升级走 chore 需求 |
 | chromiumoxide（Rust） | alterd 的 CDP 客户端与多路复用 | 开源；TBD — 建网关需求时确认版本与 Electron 的 CDP 兼容性 |
 | rusqlite（bundled SQLite） | 本地数据库 | 开源 |
 | security-framework（Rust） | 读取 Keychain「Chrome Safe Storage」密钥 | 开源；依赖 macOS 授权弹窗 |
@@ -103,3 +103,6 @@ flowchart LR
 | 2026-10-20 | UI 用 SolidJS + Vite | 细粒度响应式，侧边栏与 agent 光标叠层高频更新开销最小 | React（生态大但开销高）；Svelte 5（runes 较新） |
 | 2026-10-20 | 分发：GitHub Releases 放 DMG，`scripts/install.sh` 下载安装并链接 CLI，主页发 GitHub Pages，skill 放 `skills/alter-browser/` | 零基础设施成本，与开源协作一致 | 自有域名 + 对象存储；仅本地源码构建 |
 | 2026-10-20 | 单仓双工作区：Cargo workspace + Bun workspace；协议类型源头在 Rust，TS 类型生成 | Rust 与 TS 共享一份协议定义，避免漂移；单仓便于原子变更 | 多仓；手写两份类型 |
+| 2026-10-21 | 页面容器用 `WebContentsView` | `BrowserView` 从 Electron 30 起弃用 | `BrowserView` |
+| 2026-10-21 | Shell Control 以全量快照（声明式）为主，只保留 `navigate` 等少量指令 | Main 无状态地按快照对齐视图，不需要为每条指令设计确认与回滚；500 标签时一次往返 p95 约 1.1 ms | `api.md` 早先规划的 createTab / closeTab / activateTab 指令（agent 网关需要时再加） |
+| 2026-10-21 | Chromium 用户数据放在 `ALTER_HOME/chromium` | 数据集中在一个目录；测试用临时 `ALTER_HOME` 时 Cookie / 缓存一起隔离 | 默认的 `~/Library/Application Support/<应用名>` |

@@ -8,37 +8,43 @@
 sequenceDiagram
   autonumber
   participant U as 用户
-  participant R as Renderer (CommandBar)
-  participant M as Electron Main (ShellControl)
-  participant D as alterd (TaskSpaceManager / Store)
-  participant C as Chromium (BrowserView)
-  U->>R: Cmd+T 输入 "github.com" 回车
-  R->>M: IPC tab.open {spaceId, input}
-  M->>D: shell.event.openRequested {spaceId, url}
-  D->>D: 解析输入（URL / 搜索 / 已有标签）
-  D->>D: INSERT tabs(space_id, url, position)
-  D->>M: shell.createTab {tabId, spaceId, url}
-  M->>C: new BrowserView(partition=persist:space-<id>) 并 loadURL
-  C-->>M: did-finish-load / 标题 / favicon
-  M->>D: shell.event.tabUpdated {tabId, title, favicon}
-  D->>D: UPDATE tabs SET title, favicon
-  D-->>R: 事件 tabs.changed（经 Main 转发）
-  R-->>U: 侧边栏出现新标签并激活
-  alt 输入匹配已打开标签
-    D->>M: shell.activateTab {tabId}
-    M-->>R: 事件 tabs.changed
+  participant R as Renderer (Sidebar / AddressBar)
+  participant M as Electron Main (ShellLink / TabViews)
+  participant D as alterd (ShellServer / TabService)
+  participant C as Chromium (WebContentsView)
+  U->>R: 点「新标签」，输入 github.com 回车
+  R->>M: IPC shell.open {input, newTab: true}
+  M->>D: shell.event.openRequested {spaceId, input}
+  D->>D: 规范化 → https://github.com
+  D->>D: INSERT tabs（末尾 position，last_active_at 最大）
+  D-->>M: shell.stateChanged（广播给所有连接）
+  M->>C: 激活标签无视图 → new WebContentsView(partition) + loadURL
+  M-->>R: IPC shell.state，侧边栏出现并激活新行
+  C-->>M: page-title-updated / page-favicon-updated / did-navigate（主框架）
+  M->>D: shell.event.tabUpdated {tabId, title, faviconUrl, url}
+  D->>D: UPDATE tabs（值有变化才广播）
+  D-->>M: shell.stateChanged
+  M-->>R: 侧边栏显示标题与图标
+  alt 不是新标签模式且有激活标签
+    M->>D: openRequested 带 tabId
+    D-->>M: shell.navigate {tabId, url}（只回发送方）
+    M->>C: 该视图 loadURL(url)
   end
-  alt Space 不存在或已归档
-    D-->>M: 错误 E_SPACE_NOT_FOUND
-    M-->>R: 命令栏提示「Space 不存在」
+  alt 网页 target=_blank / window.open
+    C-->>M: setWindowOpenHandler(url)，拒绝新窗口
+    M->>D: openRequested {spaceId, input: url}
+  end
+  alt Space / 标签不存在或输入为空
+    D-->>M: shell.error {code}（只回发送方）
+    M-->>R: 地址框下方显示错误
   end
 ```
 <!-- /dflow:diagram -->
 
-- 触发：用户在某个 Space 内按 Cmd+T 打开命令栏，输入 URL、搜索词或已打开标签的名字后回车。
-- 步骤：1–2 Renderer 经 IPC 把输入交给 Electron Main；3 Main 经 Shell Control Channel 上报 alterd；4–5 alterd 解析输入（URL / 搜索 / 匹配已有标签），落库分配 tab id；6–7 alterd 下发 `shell.createTab`，Main 用该 Space 的 partition 创建 BrowserView 并加载；8–10 加载事件回流 alterd 更新标题与 favicon；11–12 变更事件推到 Renderer，侧边栏出现并激活新标签。
-- 失败处理：输入匹配已打开标签时只激活不新建；Space 不存在或已归档返回 `E_SPACE_NOT_FOUND`，命令栏内联提示；页面加载失败由 Chromium 自己的错误页承担，alterd 只记录 `tabs.title` 为错误标题。
-- 代码入口：TBD — `alter:apps/browser/src/renderer/command-bar/`、`alter:apps/browser/src/main/shell-control.ts`、`alter:crates/alterd/src/shell/`、`alter:crates/alterd/src/tabs/`（建侧边栏需求归档时填真实路径）。
+- 触发：用户在侧边栏点「新标签」后在地址框输入网址或搜索词回车（不点「新标签」时在当前激活标签打开）；或网页里点 `target="_blank"` 链接、调用 `window.open`。Cmd+T 命令栏由后续需求接入同一事件。
+- 步骤：1–2 Renderer 经 IPC 把输入交给 Electron Main；3 Main 经 Shell Control Channel 上报 `openRequested`；4–5 TabService 规范化输入并落库（末尾位置、成为激活标签）；6 广播全量快照；7–8 Main 发现激活标签还没有视图，用该 Space 的 partition 新建 WebContentsView 并加载，Renderer 出现新行；9–14 页面标题、favicon 与主框架导航回写 alterd，再广播，侧边栏更新。
+- 失败处理：Space 不存在、标签不存在、输入为空分别回 `E_SPACE_NOT_FOUND`、`E_TAB_NOT_FOUND`、`E_INVALID_ARGUMENT`，只发给请求方，地址框下方显示；页面加载失败由 Chromium 自己的错误页承担；iframe 的页内导航不回写标签地址。
+- 代码入口：`alter:apps/browser/src/renderer/src/AddressBar.tsx`、`alter:apps/browser/src/main/index.ts`（IPC → ShellLink）、`alter:apps/browser/src/main/shell-link.ts`、`alter:apps/browser/src/main/tab-views.ts`、`alter:crates/alterd/src/shell/mod.rs`、`alter:crates/alterd/src/tabs/{mod.rs,url.rs}`、`alter:crates/alter-core/src/store/tabs.rs`。
 
 ## 流程：agent 用脚本驱动页面
 <!-- dflow:diagram assets/seq-agent-script.mmd -->
@@ -61,7 +67,7 @@ sequenceDiagram
   S->>G: taskSpace.create {name, spaceId?}
   G->>T: 创建 TaskSpace（ownership=agent）
   T->>M: shell.createTab {tabId, label=p1, agentOwned}
-  M->>C: new BrowserView(partition)
+  M->>C: new WebContentsView(partition)
   T-->>S: {spaceId, pages:[p1]}
   S->>G: page.goto {label=p1, url}
   G->>T: 校验 ownership=agent
@@ -222,7 +228,7 @@ sequenceDiagram
 ```
 <!-- /dflow:diagram -->
 
-- 触发：用户打开 alter.app（开发时为 `bun run dev`）。
+- 触发：用户打开 alter.app（开发时为 `bun run dev`）。alterd 进入 running 后 Main 连接 `shell.sock`，收到的第一份快照即恢复上次的标签（只为各 Space 的激活标签建视图）。
 - 步骤：1 Electron Main 依次在 `ALTER_ALTERD_PATH`、`process.resourcesPath/bin/alterd`、`<repo>/target/debug/alterd` 找 alterd；2 找不到时推 `daemon.status missing`，窗口保持打开；3–4 找到就 spawn `alterd run --exit-on-stdin-close`，stdin 是只有 Main 持有写端的管道，alterd 先对 `alterd.lock` 取排他锁；5–6 锁被占用时 alterd 以退出码 3 退出，Main 读 `alterd.json`，其中 pid 存活就复用这个外部实例（推 `running` 与它的 pid，app 退出时不停它），否则推 `exited`；7–8 取到锁后 `Store::open` 迁移 `alter.db`，覆盖写 `alterd.json`；9–10 Main 每 100 ms 读一次健康文件，不设截止时间，直到看到它或子进程退出，然后推 `running` 与 pid；11–13 app 退出时 Main 拦下 `before-quit`，发 SIGTERM，alterd 删除健康文件并以 0 退出，2 秒内没退出则 SIGKILL 并删除 pid 匹配的健康文件。
 - 失败处理：alterd 的 stderr 经管道由 Main 转发，不继承主进程 stdio，避免拖住 app 退出；alterd 其他错误（打开数据库失败等）以退出码 1 退出并写 `code=1` 的 JSON 日志，Main 推 `exited`。app 被强制结束（SIGKILL、崩溃）时 `before-quit` 不执行，但内核会关闭 stdin 管道写端，alterd 读到 EOF（或读取出错）后走同一条清理路径：删除健康文件，退出码 0。此时 stderr 管道也已断开，alterd 关闭了 tracing 的内部错误报告，写日志失败不会 panic。复用外部实例后 Main 不再监视它，外部实例之后退出时页面仍显示「运行中」（后续由网关握手 / 心跳处理）。
 - 代码入口：`alter:apps/browser/src/main/daemon.ts`（`resolveAlterdPath`、`DaemonSupervisor`）、`alter:apps/browser/src/main/index.ts`（`before-quit`）、`alter:crates/alterd/src/lifecycle.rs`（`run`）、`alter:crates/alter-core/src/health.rs`。

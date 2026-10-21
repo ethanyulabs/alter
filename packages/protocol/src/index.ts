@@ -2,3 +2,8 @@
 // 生成文件在 ./generated，用 `bun run protocol:export` 重新生成，禁止手改。
 export type { ErrorCode } from "./generated/ErrorCode";
 export type { HealthFile } from "./generated/HealthFile";
+export type { ShellCommand } from "./generated/ShellCommand";
+export type { ShellEvent } from "./generated/ShellEvent";
+export type { ShellState } from "./generated/ShellState";
+export type { SpaceView } from "./generated/SpaceView";
+export type { TabView } from "./generated/TabView";

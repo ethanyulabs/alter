@@ -5,7 +5,7 @@ flowchart LR
   sdk[alter-sdk<br/>TS, Bun 运行]:::backend
   subgraph app [alter.app（Electron 壳）]
     renderer[Renderer<br/>Sidebar · CommandBar · SplitView · AgentOverlay]:::frontend
-    main[Electron Main<br/>WindowManager · ShellControl]:::frontend
+    main[Electron Main<br/>ShellLink · TabViews]:::frontend
     chromium[Chromium 渲染进程<br/>每个 Space 一个 partition]:::frontend
   end
   subgraph daemon [alterd（Rust 守护进程）]
@@ -21,7 +21,7 @@ flowchart LR
   gh[[GitHub Releases]]:::external
   user -->|点击 / 快捷键| renderer
   renderer -->|IPC| main
-  main -->|创建 / 销毁 BrowserView<br/>partition=persist:space-id| chromium
+  main -->|创建 / 挂载 WebContentsView<br/>partition=persist:space-id| chromium
   agent -->|alter nodejs 脚本| cli
   cli -->|启动 Bun 加载| sdk
   sdk -->|ws://127.0.0.1 JSON-RPC| gateway

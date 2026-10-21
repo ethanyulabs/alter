@@ -1,0 +1,27 @@
+flowchart LR
+  user([用户]):::frontend
+  subgraph app [alter.app（Electron）]
+    renderer[Renderer<br/>Sidebar · AddressBar · NavButtons]:::frontend
+    main[Electron Main<br/>ShellLink · TabViews]:::frontend
+    views[WebContentsView<br/>partition persist:space-id]:::frontend
+  end
+  subgraph daemon [alterd]
+    shell[ShellServer<br/>shell.sock]:::backend
+    tabsvc[TabService<br/>状态唯一来源]:::backend
+    store[(SQLite<br/>spaces · tabs)]:::data
+  end
+  user -->|点击 / 输入地址| renderer
+  renderer -->|IPC shell.open / tab.* / nav.*| main
+  main -->|Unix socket JSON 行<br/>shell.event.*| shell
+  shell -->|shell.stateChanged / navigate / error| main
+  shell -->|mpsc 事件| tabsvc
+  tabsvc -->|broadcast 快照| shell
+  tabsvc -->|唯一写连接| store
+  main -->|IPC shell.state| renderer
+  main -->|创建 / 挂载 / loadURL / 后退前进| views
+  views -->|标题 / URL / favicon 事件| main
+  class shell,tabsvc,main,renderer,views changed
+  classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
+  classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b
+  classDef data fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef changed stroke-width:3px,stroke:#dc2626

@@ -5,7 +5,7 @@
 ## 项目简介
 alter 是一个 macOS 浏览器，给人和 AI agent 共用：对人提供 Arc 风格的 Space 隔离与侧边栏交互，并可从 Chrome / Arc 导入 profile；对 agent 提供 `alter` CLI 与 `alter nodejs` 脚本运行时（仿 ego-browser 的 TaskSpace / Page API），agent 在用户已登录的 Space 里干活，用户可随时接管再交还。本仓库是单仓多包：Rust 守护进程 alterd（热路径）、Electron + SolidJS 壳、Bun 运行的 SDK、CLI、agent skill、主页与安装脚本。
 
-**现状：工程骨架已就绪。** 三个进程能启动并互相配合：app 拉起 alterd，alterd 建库并写健康文件 `alterd.json`，`alter status` 读它报告状态；还没有网关、CDP 与任何浏览器 UI。`.dev-flow/infra/` 描述的是目标架构，功能按 `.dev-flow/changes/` 里的需求逐个落地；下文标「待建立」的还没有代码。
+**现状：能当基础浏览器用。** app 拉起 alterd，alterd 建库、写健康文件 `alterd.json` 并在 `shell.sock` 上提供 Shell Control Channel；主窗口是「侧边栏 + 内容区」，可以在默认 Space 里输入网址或搜索、新建 / 切换 / 关闭标签、后退前进刷新，重启后恢复标签；`alter status` 报告 alterd 状态。还没有 Space 管理、网关、CDP 与 agent 相关功能。`.dev-flow/infra/` 描述的是目标架构，功能按 `.dev-flow/changes/` 里的需求逐个落地；下文标「待建立」的还没有代码。
 
 ## 功能
 - Space：每个 Space 一套独立的 Cookie / storage（Chromium partition），侧边栏底部切换。
@@ -29,7 +29,7 @@ alter 是一个 macOS 浏览器，给人和 AI agent 共用：对人提供 Arc �
 | 构建 | `cargo build && bun run build`（release 构建与 DMG 打包待建立） |
 | 全部门禁 | `bun run ci:check`（CI 跑的就是它） |
 
-单个测试：Rust `cargo test -p alterd --test lifecycle`（或 `cargo test -p alter-core --test store r1_s1`）；TS `bun test packages/sdk/tests/smoke.test.ts`；Electron 端到端 `bun run e2e --grep R7`（按场景 ID 过滤，会先构建 alterd 与 app）。端到端需要本机能启动 Electron 窗口，每次启动自动用临时 `ALTER_HOME`，`ALTER_E2E_ARGS` 可追加 Electron 参数；CLI 与 alterd 测试同样用临时 `ALTER_HOME` 隔离状态。无需外部服务。
+单个测试：Rust `cargo test -p alterd --test lifecycle`、`cargo test -p alterd --test shell r5_`（或 `cargo test -p alter-core --test store r1_s1`）；Shell 通道基准 `cargo test -p alterd --release --test shell_perf -- --ignored --nocapture`；TS `bun test packages/sdk/tests/smoke.test.ts`；Electron 端到端 `bun run e2e --grep R7`（按场景 ID 过滤，会先构建 alterd 与 app）。端到端需要本机能启动 Electron 窗口，每次启动自动用临时 `ALTER_HOME`，`ALTER_E2E_ARGS` 可追加 Electron 参数；CLI 与 alterd 测试同样用临时 `ALTER_HOME` 隔离状态。无需外部服务。
 
 命令行入口（调试时可直接跑）：`cargo run -q -p alter-cli -- --version`、`ALTER_HOME=<临时目录> cargo run -q -p alter-cli -- status [--json]`（退出码 0 运行中、1 未运行或残留）、`ALTER_HOME=<临时目录> cargo run -q -p alterd -- run`（Ctrl+C 退出；已有实例时退出码 3；app 托管时带 `--exit-on-stdin-close`，stdin 关闭即清理退出）、`bun run protocol:export`（重新生成 TS 协议类型）。
 
@@ -53,10 +53,10 @@ alter 是一个 macOS 浏览器，给人和 AI agent 共用：对人提供 Arc �
 alter/
 ├── crates/
 │   ├── alter-core/      # 协议类型、错误码、SQLite 迁移与仓储；ts-rs 导出 TS 类型
-│   ├── alterd/          # 守护进程：目前只有 lifecycle（run）；gateway/ task_space/ cdp/ shell/ import/ 待建立
+│   ├── alterd/          # 守护进程：lifecycle（run）、shell/（shell.sock 服务端）、tabs/（TabService，Space / 标签状态唯一来源，地址规范化）；gateway/ task_space/ cdp/ import/ 待建立
 │   └── alter-cli/       # `alter` 命令：目前 --version / status；nodejs / spaces / import / upgrade 待建立
 ├── apps/
-│   └── browser/         # Electron 壳：src/main/（窗口、托管 alterd）、src/preload/、src/renderer/（SolidJS）、src/shared/、e2e/
+│   └── browser/         # Electron 壳：src/main/（窗口、托管 alterd、shell-link.ts、tab-views.ts）、src/preload/、src/renderer/（SolidJS 侧边栏）、src/shared/、e2e/
 ├── packages/
 │   ├── protocol/        # 由 alter-core 生成的 TS 类型，不手写
 │   └── sdk/             # alter-sdk：taskSpace() / Page API，Bun 内运行（目前是占位）
@@ -78,6 +78,7 @@ alter/
 - 只有 alterd 写 SQLite、只有 alterd 发 CDP；Electron Main 不碰数据库与 CDP，Renderer 只经 IPC 与 Main 通信。
 - `packages/sdk` 零 electron 依赖；`crates/alter-cli` 除 `nodejs` 子命令外不启动 Bun。
 - 协议类型的源头在 `crates/alter-core`，`packages/protocol` 由 `cargo run -p alter-core --bin export-ts` 生成；禁止手改生成文件。
+- `.dev-flow/specs/protocol/spec.md` 写死了 `ErrorCode` 的字面量集合与导出类型：需求要新增错误码或导出类型时，写需求文档时就加 protocol 能力的 MODIFIED，不要等到实现时再走 update。
 - 所有网络接口只监听 127.0.0.1；`gateway.json` 与 `shell.sock` 权限 0600；Keychain 密钥只在内存，不写日志、不落盘。
 - 性能预算是门禁：CLI 冷启动 < 20 ms，网关单动作内部开销 < 5 ms（基准数值在建网关需求时校准，见 architecture.md）。基准回归即失败。
 - `E_USER_CONTROL` 语义不可绕过：ownership=user 时 agent 命令必须被拒绝，SDK 不得自动重试。
@@ -89,8 +90,10 @@ alter/
 ## 验证与测试
 - Rust 单测与集成测试在各 crate 的 `src/` 与 `tests/`；网关协议与 Shell Control 协议各有契约测试（假客户端 / 假 Electron 端）。
 - TS 单测在 `packages/*/tests/`（`bun test`，由 bunfig.toml 限定范围），SDK 对假 Gateway 断言请求体与错误映射。
-- Electron 端到端在 `apps/browser/e2e/`（Playwright `_electron.launch`），用例标题以场景 ID 开头；目前覆盖主窗口与 alterd 托管，后续加侧边栏、命令栏、叠层与接管。
-- 评审与验证交给 codex 时，它的沙箱启动不了 Electron（SIGABRT），e2e 由主会话在本机跑 `bun run e2e`，把结果贴进验证报告并注明运行环境。
+- Shell Control 的契约测试在 `crates/alterd/tests/shell.rs`（共用辅助在 `tests/common/mod.rs`），基准在 `tests/shell_perf.rs`（`#[ignore]`）。
+- Electron 端到端在 `apps/browser/e2e/`（Playwright `_electron.launch`），用例标题以场景 ID 开头；覆盖主窗口、alterd 托管、侧边栏与标签。页面用 `e2e/fixtures/server.ts` 的本地 HTTP 服务器，不访问外网；内容区 URL 在主进程里读（`webContents.getAllWebContents()`、窗口挂载的 `WebContentsView`），不依赖 `app.windows()`；用例失败时 `dumpLogsOnFailure` 打印 app 主进程与 alterd 的输出。已存档需求的用例保留各自的场景 ID，`--grep` 可能同时选中新旧同名 ID。
+- 评审与验证交给 codex 时，它的沙箱启动不了 Electron（SIGABRT），也不允许监听 Unix socket（alterd 的 lifecycle / shell 测试会以 `Operation not permitted` 失败）：`bun run e2e` 与 `cargo test` 都由主会话在本机跑，把结果贴进验证报告并注明运行环境。
+- 写完 e2e 或契约测试后，至少想一个能让它误判为通过的错误实现，并用变异确认测试会失败；计时类成功标准从被测系统自己留下的时间点（如 `alterd.json` 的 mtime）起算，只允许高估。
 - CLI 用 `assert_cmd` 跑真实二进制，`ALTER_HOME` 指向临时目录。
 - alterd 退出路径（信号、stdin 关闭）的测试要覆盖宿主已死、stdin / stderr 管道都已断开的情况：此时写日志会失败，清理不能因此中断。只靠 e2e 才测得出的问题，codex 的沙箱跑不到。
 - `scripts/install.sh` 过 `shellcheck`，并用 `--dry-run` 断言步骤。

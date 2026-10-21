@@ -1,0 +1,35 @@
+sequenceDiagram
+  autonumber
+  participant U as 用户
+  participant R as Renderer
+  participant M as Electron Main
+  participant S as alterd ShellServer
+  participant T as alterd TabService
+  participant V as WebContentsView
+  M->>S: 连接 ALTER_HOME/shell.sock（alterd 进入 running 后）
+  S-->>M: shell.stateChanged 全量快照
+  M-->>R: IPC shell.state
+  U->>R: 点「新标签」，输入 127.0.0.1:8080/a 回车
+  R->>M: IPC shell.open {input, newTab: true}
+  M->>S: shell.event.openRequested {spaceId, input}
+  S->>T: 事件入队（单一写者）
+  T->>T: 规范化 → http://127.0.0.1:8080/a
+  T->>T: INSERT tabs（末尾，last_active_at=now）
+  T-->>S: 新快照
+  S-->>M: shell.stateChanged（广播给所有连接）
+  M->>V: 激活标签无视图 → new WebContentsView(partition) + loadURL
+  M-->>R: IPC shell.state（新行、激活样式）
+  V-->>M: page-title-updated "Page A"
+  M->>S: shell.event.tabUpdated {tabId, title}
+  T->>T: UPDATE tabs SET title
+  S-->>M: shell.stateChanged
+  M-->>R: 侧边栏显示 Page A
+  alt 不是新标签模式且有激活标签
+    T-->>S: 不新建，回 shell.navigate {tabId, url}
+    S-->>M: shell.navigate
+    M->>V: loadURL(url)
+  end
+  alt spaceId 不存在 / 输入为空
+    S-->>M: shell.error {code}（只回发送方）
+    M-->>R: 地址框下方提示错误
+  end

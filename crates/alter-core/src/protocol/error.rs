@@ -32,4 +32,8 @@ pub enum ErrorCode {
     KeychainDenied,
     #[serde(rename = "E_INTERNAL")]
     Internal,
+    #[serde(rename = "E_TAB_NOT_FOUND")]
+    TabNotFound,
+    #[serde(rename = "E_INVALID_ARGUMENT")]
+    InvalidArgument,
 }

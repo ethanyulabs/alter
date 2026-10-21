@@ -16,7 +16,7 @@ sequenceDiagram
   S->>G: taskSpace.create {name, spaceId?}
   G->>T: 创建 TaskSpace（ownership=agent）
   T->>M: shell.createTab {tabId, label=p1, agentOwned}
-  M->>C: new BrowserView(partition)
+  M->>C: new WebContentsView(partition)
   T-->>S: {spaceId, pages:[p1]}
   S->>G: page.goto {label=p1, url}
   G->>T: 校验 ownership=agent

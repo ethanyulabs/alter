@@ -1,6 +1,8 @@
 //! alterd：alter 的守护进程。
 
 mod lifecycle;
+mod shell;
+mod tabs;
 
 use std::process::ExitCode;
 
