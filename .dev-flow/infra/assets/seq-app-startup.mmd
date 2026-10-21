@@ -9,11 +9,17 @@ sequenceDiagram
     M-->>R: daemon.status missing
     Note over R: 显示「alterd 未找到」, 窗口保持打开
   else 找到二进制
-    M->>D: spawn alterd run, 透传 ALTER_HOME
+    M->>D: spawn alterd run --exit-on-stdin-close<br/>stdin 为 Main 独占写端的管道, 透传 ALTER_HOME
     D->>H: 对 alterd.lock 取排他锁
     alt 锁被另一个 alterd 持有
       D-->>M: 退出码 3, JSON 日志 already running
-      M-->>R: daemon.status exited
+      M->>H: 读取 alterd.json, 检查 pid 存活
+      alt pid 存活
+        M-->>R: daemon.status running, 外部实例的 pid
+        Note over M: 复用该实例, app 退出时不停它
+      else 读不到或 pid 已死
+        M-->>R: daemon.status exited
+      end
     else 取到锁
       D->>H: Store::open, alter.db 迁移到 version 1
       D->>H: 覆盖写 alterd.json (version, pid, startedAt, dbPath)
@@ -27,3 +33,7 @@ sequenceDiagram
   M->>D: app 退出, 发送 SIGTERM
   D->>H: 删除 alterd.json
   D-->>M: 退出码 0 (2 s 内, 超时则 SIGKILL)
+  opt app 被强制结束 (SIGKILL / 崩溃)
+    Note over D: 内核关闭 stdin 管道写端, alterd 读到 EOF
+    D->>H: 删除 alterd.json, 退出码 0 (日志 signal=stdin-eof)
+  end

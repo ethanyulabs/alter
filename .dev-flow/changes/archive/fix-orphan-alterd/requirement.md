@@ -2,9 +2,9 @@
 id: fix-orphan-alterd
 title: app 异常结束后 alterd 残留，重启显示「已退出」
 type: fix
-status: draft
-revision: 1
-approved_revision: 0
+status: archived
+revision: 2
+approved_revision: 2
 repos: [alter]
 created: 2026-10-20
 skip_specs: false
@@ -36,12 +36,15 @@ skip_specs: false
   1. alterd 无从得知父进程已死：它只在收到 SIGTERM / SIGINT 时退出，而 Electron 被 SIGKILL 时 `before-quit` 不会执行，没有人给 alterd 发信号。预测：让 alterd 在 app 持有的管道关闭时退出，第 2 步之后就不会有残留进程。
   2. app 把 alterd 的任何退出都当成「已退出」，包括退出码 3（另一个实例正在运行）。预测：退出码 3 时改为读 `alterd.json` 并确认 pid 存活，第 3 步就会显示「alterd 运行中」，哪怕残留进程还在。
   3. 崩溃后 `alterd.lock` 没被释放，新实例被锁住。预测：直接 `kill -9` alterd 本身后再启动，仍会退出码 3。已证伪：`flock` 随进程结束释放，R3.S4（残留健康文件）用例和手动实验里新实例都能正常启动。
-- 已确认：假设 1 和 2 同时成立。
+  4. （T2 执行中发现）宿主被强制结束后 alterd 的 stderr 管道也断了，退出路径上写日志失败，tracing-subscriber 默认用 `eprintln!` 报告这个内部错误，`eprintln!` 写 stderr 失败即 panic，跳过删除健康文件。预测：同时关闭 alterd 的 stdin 与 stderr，退出码为 101 且健康文件仍在。
+- 已确认：假设 1、2、4 同时成立。
   - 假设 1：`apps/browser/src/main/daemon.ts:65` 以 `stdio: ["ignore", "ignore", "pipe"]` 启动 alterd，alterd 的 stdin 不连着 app。`crates/alterd/src/lifecycle.rs:74` 的 `tokio::select!` 只等 SIGTERM / SIGINT，所以父进程被 SIGKILL 后它一直运行。
   - 假设 2：`daemon.ts:71-72` 的 `exit` 处理对任何退出码都报 `exited`。
+  - 假设 4：Python 拉起 `alterd run --exit-on-stdin-close` 后同时关闭 stdin 与 stderr，returncode 101、健康文件仍在；源码见 tracing-subscriber 0.3.23 `src/fmt/fmt_layer.rs:1051`。
 
 ## 修复范围
-- alterd：`run` 新增参数 `--exit-on-stdin-close`。带上它时，stdin 读到 EOF（写端关闭，包括持有写端的进程被 SIGKILL）就按收到 SIGTERM 的流程退出：删除 `alterd.json`，退出码 0。不带它时行为不变，终端里手动运行、stdin 是 `/dev/null` 都不受影响。
+- alterd：`run` 新增参数 `--exit-on-stdin-close`。带上它时，stdin 读到 EOF（写端关闭，包括持有写端的进程被 SIGKILL）或读取出错（宿主通道已不可用），就按收到 SIGTERM 的流程退出：删除 `alterd.json`，退出码 0。不带它时行为不变，终端里手动运行、stdin 是 `/dev/null` 都不受影响。
+- alterd：日志写 stderr 失败时不再报告内部错误（`log_internal_errors(false)`），stderr 管道断开不会让退出清理 panic。
 - app：spawn alterd 时把 stdin 改成管道并带上 `--exit-on-stdin-close`，整个运行期间不关闭写端。
 - app：alterd 以退出码 3 退出时，读 `alterd.json`。其中 pid 存活就复用这个实例，状态报 `running` 和它的 pid；app 退出时不去停一个不是自己拉起的实例。读不到文件或 pid 已死时，仍报 `exited`。
 - 刻意不动：
@@ -54,7 +57,7 @@ skip_specs: false
 ## Spec Delta: alterd-lifecycle
 
 ### ADDED Requirement: R1 随宿主退出
-系统 SHALL 在 `alterd run --exit-on-stdin-close` 的 stdin 到达 EOF 后 2 秒内退出：退出码为 0，并删除 `ALTER_HOME/alterd.json`。不带该参数时，stdin 的状态不影响 alterd 的运行。
+系统 SHALL 在 `alterd run --exit-on-stdin-close` 的 stdin 到达 EOF 或读取出错后 2 秒内退出：退出码为 0，并删除 `ALTER_HOME/alterd.json`。不带该参数时，stdin 的状态不影响 alterd 的运行。
 
 #### Scenario: R1.S1 stdin 写端关闭后退出
 - WHEN 以空的临时目录为 `ALTER_HOME`，用管道作 stdin 运行 `alterd run --exit-on-stdin-close`，等 `ALTER_HOME/alterd.json` 出现后关闭管道写端
@@ -64,6 +67,11 @@ skip_specs: false
 #### Scenario: R1.S2 不带参数时忽略 stdin
 - WHEN 以空的临时目录为 `ALTER_HOME`，stdin 为 `/dev/null`（立即 EOF），运行不带参数的 `alterd run`
 - THEN 3 秒后 alterd 仍在运行，`ALTER_HOME/alterd.json` 存在且其中 pid 为该进程
+
+#### Scenario: R1.S3 stdin 读取出错时退出
+- WHEN 以空的临时目录为 `ALTER_HOME`，以只读打开的一个目录作 stdin（读取立即返回 EISDIR 错误）运行 `alterd run --exit-on-stdin-close`
+- THEN alterd 在 2 秒内退出，退出码为 0
+- AND `ALTER_HOME/alterd.json` 不存在
 
 ## Spec Delta: app-shell
 
@@ -99,6 +107,9 @@ skip_specs: false
 - 无。
 
 ## 澄清记录
+### Session 2026-10-21
+- Q: 带 `--exit-on-stdin-close` 时，stdin 读取出错（非 EOF）怎么处理？（验证时 codex 指出实现会清理退出，而规格只写了 EOF）→ A: 补进规格：读取出错按 EOF 处理，宿主通道不可用时退出更安全。
 
 ## 变更记录
 - 2026-10-20: 创建。
+- 2026-10-21: amended: R1 补上「stdin 读取出错也退出」并新增场景 R1.S3、任务 T4（验证时发现实现已有此行为而规格未写）；根因补充假设 4（stderr 断开导致退出清理 panic），修复范围补上 `log_internal_errors(false)`; revision: 2; re-approved by the user

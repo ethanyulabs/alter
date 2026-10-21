@@ -69,12 +69,13 @@ CLI（`alter`，除 `status` 外的子命令读同一个 `gateway.json`；`ALTER
 | `alter upgrade [--check]` | 从 GitHub Releases 下载并安装新版 DMG | 0；无更新 0；下载失败 1 |
 | `alter --version` | 版本 | 0 |
 
-进程状态（add-workspace-skeleton 已实现，三个进程共用 `ALTER_HOME`，未设置时为 `~/Library/Application Support/alter`）：
+进程状态（add-workspace-skeleton、fix-orphan-alterd 已实现，三个进程共用 `ALTER_HOME`，未设置时为 `~/Library/Application Support/alter`）：
 
 - 健康文件 `alterd.json`：alterd 写，CLI 与 Electron Main 读；`{"version": "0.1.0", "pid": 12345, "startedAt": 1760918400000, "dbPath": "/abs/path/alter.db"}`，先写临时文件再 rename。Rust 类型 `alter_core::protocol::HealthFile`，TS 类型由 `packages/protocol` 生成。
-- `alterd run` 退出码：0 正常退出（SIGTERM / SIGINT）；3 已有实例持有 `alterd.lock`；1 其他错误。stderr 只输出 tracing 的 JSON 行，退出码 1 与 3 的那条带 `code` 字段。
+- `alterd run [--exit-on-stdin-close]`：带上该参数时，stdin 读到 EOF 或读取出错就按 SIGTERM 的流程退出（删除 `alterd.json`，退出码 0，日志 `signal` 为 `stdin-eof` / `stdin-error`）；不带时 stdin 不影响运行。Electron Main 总是带上它，并以自己独占写端的管道作 alterd 的 stdin。
+- `alterd run` 退出码：0 正常退出（SIGTERM / SIGINT / stdin 关闭）；3 已有实例持有 `alterd.lock`；1 其他错误。stderr 只输出 tracing 的 JSON 行，退出码 1 与 3 的那条带 `code` 字段。
 - `alter status`：运行中输出 `alterd running (pid <n>, version <v>)`；无文件输出 `not running`；文件在但 pid 已死输出 `not running (stale)`。`--json` 为 `{"running": true, "pid": n, "version": "…", "dbPath": "…"}`、`{"running": false}` 或 `{"running": false, "stale": true}`。
-- Electron IPC（Main → Renderer，经 preload 的 `window.alter`）：通道 `daemon.status`，载荷 `{state: "starting"|"running"|"missing"|"exited", pid?, path?}`；Renderer 显示 `alterd 启动中 / 运行中 / 未找到 / 已退出`。
+- Electron IPC（Main → Renderer，经 preload 的 `window.alter`）：通道 `daemon.status`，载荷 `{state: "starting"|"running"|"missing"|"exited", pid?, path?}`；alterd 以退出码 3 退出且 `alterd.json` 里的 pid 存活时，报 `running` 与该外部实例的 pid；Renderer 显示 `alterd 启动中 / 运行中 / 未找到 / 已退出`。
 
 SDK（`packages/sdk`，Bun 内全局可用）：`taskSpace(name|id)`、`takeOverTaskSpace(id)`、`claimTaskSpace(id)`、`listTaskSpaces()`；TaskSpace 对象：`spaceId`、`name`、`ownership`、`page(label)`、`userPage()`、`pages()`、`tabs()`、`newPage()`、`adopt()`、`release()`、`handOff()`、`waitForControl()`、`finish({keep})`、`cdp()`；Page 对象一一对应上表 `page.*` 方法，外加 `mouse.*`、`keyboard.*`、`waitForEvent("popup"|"download")`、`waitForFileChooser()`。与 ego-browser 的 API 形状保持一致，方便 skill 迁移。
 

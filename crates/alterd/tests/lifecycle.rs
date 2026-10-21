@@ -14,9 +14,16 @@ struct Daemon {
 
 impl Daemon {
     fn spawn(home: &Path) -> Daemon {
+        Daemon::spawn_with(home, &[], Stdio::inherit())
+    }
+
+    /// 以额外参数与指定的 stdin 启动 `alterd run`。
+    fn spawn_with(home: &Path, args: &[&str], stdin: Stdio) -> Daemon {
         let child = Command::new(env!("CARGO_BIN_EXE_alterd"))
             .arg("run")
+            .args(args)
             .env("ALTER_HOME", home)
+            .stdin(stdin)
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             .spawn()
@@ -225,4 +232,70 @@ fn r3_s3_concurrent_start_leaves_one_instance() {
     }
     assert_eq!(running.len(), 1, "仍在运行的实例：{running:?}");
     assert_eq!(read_health(home.path())["pid"], running[0]);
+}
+
+/// R1.S1 stdin 写端关闭后退出：带 `--exit-on-stdin-close` 时，关闭管道写端后 2 秒内退出码 0，alterd.json 被删除。
+#[test]
+fn exit_on_stdin_r1_s1_closing_pipe_exits_cleanly() {
+    let home = tempfile::tempdir().unwrap();
+    let mut daemon = Daemon::spawn_with(home.path(), &["--exit-on-stdin-close"], Stdio::piped());
+    assert!(
+        wait_until(Duration::from_secs(1), || health_path(home.path()).exists()),
+        "1 秒内没有出现 alterd.json，stderr：{}",
+        {
+            let _ = daemon.child.kill();
+            daemon.stderr()
+        }
+    );
+
+    // 丢掉写端即关闭管道
+    drop(daemon.child.stdin.take());
+
+    let status = daemon
+        .wait(Duration::from_secs(2))
+        .expect("stdin 关闭后 2 秒内应当退出");
+    assert_eq!(status.code(), Some(0), "退出状态：{status:?}");
+    assert!(
+        !health_path(home.path()).exists(),
+        "alterd.json 应当已被删除"
+    );
+}
+
+/// R1.S2 不带参数时忽略 stdin：stdin 为 /dev/null（立即 EOF），3 秒后仍在运行，健康文件 pid 为该进程。
+#[test]
+fn exit_on_stdin_r1_s2_without_flag_ignores_stdin_eof() {
+    let home = tempfile::tempdir().unwrap();
+    let mut daemon = Daemon::spawn_with(home.path(), &[], Stdio::null());
+    assert!(wait_until(Duration::from_secs(1), || health_path(
+        home.path()
+    )
+    .exists()));
+
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(daemon.is_running(), "stderr：{}", {
+        let _ = daemon.child.kill();
+        daemon.stderr()
+    });
+    assert_eq!(read_health(home.path())["pid"], daemon.pid());
+}
+
+/// R1.S3 stdin 读取出错时退出：以只读打开的目录作 stdin（读取返回 EISDIR），2 秒内退出码 0，alterd.json 不存在。
+#[test]
+fn exit_on_stdin_r1_s3_read_error_exits_cleanly() {
+    let home = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let stdin = std::fs::File::open(dir.path()).expect("目录应当能以只读打开");
+    let mut daemon =
+        Daemon::spawn_with(home.path(), &["--exit-on-stdin-close"], Stdio::from(stdin));
+
+    let status = daemon
+        .wait(Duration::from_secs(2))
+        .expect("stdin 读取出错后 2 秒内应当退出");
+    assert_eq!(
+        status.code(),
+        Some(0),
+        "退出状态：{status:?}，stderr：{}",
+        daemon.stderr()
+    );
+    assert!(!health_path(home.path()).exists(), "alterd.json 应当不存在");
 }
