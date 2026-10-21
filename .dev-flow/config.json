@@ -6,15 +6,15 @@
     {
       "name": "alter",
       "path": ".",
-      "test": "",
-      "lint": "",
-      "typecheck": "",
-      "build": ""
+      "test": "cargo test && bun test",
+      "lint": "cargo fmt --check && cargo clippy --all-targets -- -D warnings && bun run lint",
+      "typecheck": "bun run typecheck",
+      "build": "cargo build && bun run build"
     }
   ],
   "peers": [],
   "commit_checkpoints": false,
   "coverage_threshold": null,
-  "reviewer": null,
-  "verifier": null
+  "reviewer": "codex",
+  "verifier": "codex"
 }

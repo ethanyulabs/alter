@@ -9,7 +9,7 @@
 | ShellLink | alter:crates/alterd/src/shell/ | Shell Control Channel 的 alterd 端：下发 createTab / closeTab / activateTab / setOverlay，接收用户事件 | alter-core | api.md 的 Shell Control 协议（测试用假 Electron 端驱动） |
 | ImportService | alter:crates/alterd/src/import/ | 拷贝并解析 Chrome / Arc 的 Bookmarks / History / Cookies，Keychain 取密钥解密，经 CDP 写 Cookie | Store、CdpMux、security-framework | Gateway `import.run`；fixture 目录驱动的 Rust 单测 |
 | Store | alter:crates/alter-core/src/store/ | SQLite 读写（单写连接 + WAL），表见 data-model.md | rusqlite | Rust API；表结构本身是契约 |
-| alter CLI | alter:crates/alter-cli/ | 子命令 `nodejs` / `spaces` / `import` / `status` / `upgrade`；读 gateway.json；`nodejs` 启动打包的 Bun 并注入环境变量 | alter-core | 命令行（测试用 `assert_cmd` 驱动） |
+| alter CLI | alter:crates/alter-cli/ | 子命令 `nodejs` / `spaces` / `import` / `status` / `upgrade`；读 gateway.json（`status` 目前读健康文件 `alterd.json`）；`nodejs` 启动打包的 Bun 并注入环境变量 | alter-core | 命令行（测试用 `assert_cmd` 驱动） |
 | alter-sdk | alter:packages/sdk/ | `taskSpace()` / `takeOverTaskSpace()` / `listTaskSpaces()` 与 Page API 的 TS 实现，WS 客户端，错误映射 | @alter/protocol | TS 公开 API（`bun test` 对假 Gateway） |
 | @alter/protocol | alter:packages/protocol/ | 由 alter-core 生成的 TS 类型，不手写 | 无 | 类型包 |
 | Electron Main | alter:apps/browser/src/main/ | 窗口、BrowserView 创建 / 销毁与布局（分屏）、partition、Shell Control Channel 的 Electron 端、IPC 给 Renderer | electron | IPC 通道（Playwright Electron e2e 驱动） |
@@ -25,7 +25,7 @@
 - alter-sdk 零 electron 依赖，只依赖 @alter/protocol，可在任何 Bun / Node 环境运行。
 - alter CLI 只依赖 alter-core 与 Gateway 协议；`alter nodejs` 之外的子命令不启动 Bun。
 - 协议类型的源头在 alter-core（Rust），@alter/protocol 由 `cargo run -p alter-core --bin export-ts` 生成；手改生成文件算违规。
-- 所有路径此刻都是目标路径，代码存在前标 TBD；建骨架需求归档时把本表对齐到真实路径。
+- 已有代码的组件（add-workspace-skeleton 建立）：alter-core（`src/store/`、`src/protocol/`、`src/health.rs`、`src/paths.rs`、`src/bin/export_ts.rs`）、alterd（`src/lifecycle.rs`，仅 `run`）、alter CLI（`src/status.rs`，仅 `--version` / `status`）、@alter/protocol（`src/generated/`）、alter-sdk（占位）、Electron Main（`src/main/index.ts`、`src/main/daemon.ts`）、Renderer（`src/renderer/src/App.tsx`）。其余行的路径仍是目标路径，由对应需求落地。
 
 测试接入的 seam（需求的 tasks.md 从这些入口驱动测试）：
 1. Gateway 协议：WS 客户端对 alterd 发 JSON-RPC，断言响应与事件（契约测试，宪章第四条）。

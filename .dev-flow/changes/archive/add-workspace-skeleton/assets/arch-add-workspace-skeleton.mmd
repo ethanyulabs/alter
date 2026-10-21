@@ -1,0 +1,35 @@
+flowchart LR
+  subgraph cargo_ws [Cargo workspace crates/]
+    core[alter-core<br/>paths · store · protocol · health]:::backend
+    exportts[export-ts bin]:::backend
+    alterd[alterd run]:::backend
+    cli[alter CLI<br/>--version · status]:::backend
+  end
+  subgraph bun_ws [Bun workspace apps/ packages/]
+    main[Electron Main<br/>daemon.ts]:::frontend
+    renderer[Renderer SolidJS]:::frontend
+    protocol[packages/protocol<br/>src/generated/*.ts]:::frontend
+    sdk[packages/sdk 占位]:::frontend
+  end
+  subgraph home [ALTER_HOME 数据目录]
+    db[(alter.db)]:::data
+    health[(alterd.json)]:::data
+  end
+  ci[[GitHub Actions ci.yml]]:::external
+  core -->|rusqlite 迁移 0001| db
+  exportts -->|生成 TS 声明| protocol
+  alterd -->|Store::open| core
+  alterd -->|写入 / 删除| health
+  cli -->|读取并检查 pid| health
+  main -->|spawn / SIGTERM| alterd
+  main -->|轮询读取| health
+  main -->|IPC daemon.status| renderer
+  sdk -.->|import type| protocol
+  ci -->|cargo fmt / clippy / test| cargo_ws
+  ci -->|eslint / tsc / bun test| bun_ws
+  class core,exportts,alterd,cli,main,renderer,protocol,sdk changed
+  classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
+  classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b
+  classDef data fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef external fill:#f1f5f9,stroke:#64748b,color:#1e293b,stroke-dasharray:4 3
+  classDef changed stroke-width:3px,stroke:#dc2626

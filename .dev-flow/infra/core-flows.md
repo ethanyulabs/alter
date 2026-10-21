@@ -177,6 +177,46 @@ sequenceDiagram
 - 失败处理：用户拒绝 Keychain 授权 → 状态 `partial`，书签与历史已导入，Cookie 为 0，结果里带警告；源浏览器运行中的 SQLite 锁因先拷贝文件而不受影响；解析失败的单条记录跳过并计数到 `error`，不中断整个导入；同一来源重复导入按 URL + 标题去重。
 - 代码入口：TBD — `alter:crates/alterd/src/import/{chromium.rs,keychain.rs,cookies.rs}`、`alter:apps/browser/src/renderer/import-wizard/`、`alter:crates/alter-cli/src/import.rs`。
 
+## 流程：app 启动并托管 alterd
+<!-- dflow:diagram assets/seq-app-startup.mmd -->
+```mermaid
+sequenceDiagram
+  autonumber
+  participant M as Electron Main
+  participant D as alterd
+  participant H as ALTER_HOME
+  participant R as Renderer
+  M->>M: 解析 alterd 路径<br/>ALTER_ALTERD_PATH, resources/bin, target/debug
+  alt 二进制不存在
+    M-->>R: daemon.status missing
+    Note over R: 显示「alterd 未找到」, 窗口保持打开
+  else 找到二进制
+    M->>D: spawn alterd run, 透传 ALTER_HOME
+    D->>H: 对 alterd.lock 取排他锁
+    alt 锁被另一个 alterd 持有
+      D-->>M: 退出码 3, JSON 日志 already running
+      M-->>R: daemon.status exited
+    else 取到锁
+      D->>H: Store::open, alter.db 迁移到 version 1
+      D->>H: 覆盖写 alterd.json (version, pid, startedAt, dbPath)
+      loop 每 100 ms, 直到看见健康文件或子进程退出
+        M->>H: 读取 alterd.json
+      end
+      M-->>R: daemon.status running, pid
+      Note over R: 显示「alterd 运行中」
+    end
+  end
+  M->>D: app 退出, 发送 SIGTERM
+  D->>H: 删除 alterd.json
+  D-->>M: 退出码 0 (2 s 内, 超时则 SIGKILL)
+```
+<!-- /dflow:diagram -->
+
+- 触发：用户打开 alter.app（开发时为 `bun run dev`）。
+- 步骤：1 Electron Main 依次在 `ALTER_ALTERD_PATH`、`process.resourcesPath/bin/alterd`、`<repo>/target/debug/alterd` 找 alterd；2 找不到时推 `daemon.status missing`，窗口保持打开；3–4 找到就 spawn `alterd run`，alterd 先对 `alterd.lock` 取排他锁；5–6 锁被占用时 alterd 以退出码 3 退出，Main 推 `exited`；7–8 取到锁后 `Store::open` 迁移 `alter.db`，覆盖写 `alterd.json`；9–10 Main 每 100 ms 读一次健康文件，不设截止时间，直到看到它或子进程退出，然后推 `running` 与 pid；11–13 app 退出时 Main 拦下 `before-quit`，发 SIGTERM，alterd 删除健康文件并以 0 退出，2 秒内没退出则 SIGKILL 并删除 pid 匹配的健康文件。
+- 失败处理：alterd 的 stderr 经管道由 Main 转发，不继承主进程 stdio，避免拖住 app 退出；alterd 其他错误（打开数据库失败等）以退出码 1 退出并写 `code=1` 的 JSON 日志，Main 推 `exited`。app 被强制结束时 alterd 不会收到 SIGTERM，修复见进行中的需求 `fix-orphan-alterd`。
+- 代码入口：`alter:apps/browser/src/main/daemon.ts`（`resolveAlterdPath`、`DaemonSupervisor`）、`alter:apps/browser/src/main/index.ts`（`before-quit`）、`alter:crates/alterd/src/lifecycle.rs`（`run`）、`alter:crates/alter-core/src/health.rs`。
+
 ## 未展开的流程
 - 自动归档与 Peek、分屏布局：纯 Electron + Renderer 内的交互，无跨进程契约，在各自需求的 design.md 里画图。
 - `install.sh` 与 `alter upgrade`：线性脚本，见 api.md 的 CLI 表和发布需求的 design.md。

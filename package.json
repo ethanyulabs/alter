@@ -1,0 +1,28 @@
+{
+  "name": "alter-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "cargo build -q -p alterd && bun run --cwd apps/browser dev",
+    "build": "bun run --cwd apps/browser build",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p apps/browser/tsconfig.json",
+    "test": "bun test",
+    "e2e": "bun run --cwd apps/browser e2e",
+    "protocol:export": "cargo run -q -p alter-core --bin export-ts -- packages/protocol/src/generated",
+    "version:check": "bash scripts/version-check.sh",
+    "ci:check": "cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && bun run lint && bun run typecheck && bun test && bun run version:check"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/bun": "^1.4.3",
+    "eslint": "^10.13.0",
+    "typescript": "~6.0",
+    "typescript-eslint": "^8.72.0"
+  }
+}
