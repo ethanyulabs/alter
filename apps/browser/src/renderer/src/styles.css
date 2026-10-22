@@ -26,6 +26,8 @@ body,
 }
 .tabs {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   margin: 0;
   padding: 0;
   overflow-y: auto;
@@ -56,8 +58,15 @@ body,
   background: transparent;
   color: #71717a;
 }
-.tabs li button::before {
+.tabs li button.close::before {
   content: "×";
+}
+.tabs li button.pin::before {
+  content: "⚲";
+}
+.tabs li button.pin.on {
+  visibility: visible;
+  color: #18181b;
 }
 .tabs li:hover button {
   visibility: visible;
@@ -116,5 +125,409 @@ body,
 }
 .address .error {
   margin: 0;
+  color: #dc2626;
+}
+/* Space 圆点行与编辑面板（N1） */
+.sidebar {
+  position: relative;
+}
+.space-bar .dots {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.space-bar .dots button {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  box-sizing: content-box;
+}
+.space-bar .dots button.active {
+  border-color: #18181b;
+}
+.space-bar .dots button.add {
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #52525b;
+  line-height: 18px;
+}
+.space-bar .dots button.add:hover {
+  background: #e4e4e7;
+}
+.space-panel {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
+}
+.space-panel input {
+  padding: 6px 8px;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+}
+.space-panel .colors {
+  display: flex;
+  gap: 6px;
+}
+.space-panel .colors button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+}
+.space-panel .colors button.selected {
+  border-color: #18181b;
+}
+.space-panel .actions,
+.confirm .actions {
+  display: flex;
+  gap: 6px;
+}
+.space-panel .actions .spacer {
+  flex: 1;
+}
+.space-panel .actions button,
+.confirm .actions button {
+  padding: 4px 10px;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  background: #fff;
+}
+.space-panel button.primary {
+  border-color: #18181b;
+  background: #18181b;
+  color: #fff;
+}
+.space-panel button.danger,
+.confirm button.danger {
+  border-color: #dc2626;
+  color: #dc2626;
+}
+.space-panel button:disabled {
+  opacity: 0.4;
+}
+.confirm {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #fff;
+}
+.confirm p {
+  margin: 0;
+}
+/* 固定分区与普通分区之间的分隔线；没有固定标签时也保留一条可放下的细带 */
+.tabs li.divider {
+  height: 0;
+  margin: 4px 8px;
+  padding: 0;
+  border-top: 1px solid #d4d4d8;
+}
+.tabs li.divider.empty {
+  border-top-style: dashed;
+  border-top-color: #e4e4e7;
+}
+.tabs li.dragging {
+  opacity: 0.5;
+}
+.tabs li.drop-end {
+  flex: 1;
+  min-height: 24px;
+  padding: 0;
+}
+.tabs li .agent-badge {
+  margin-right: 6px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: #ede9fe;
+  color: #5b21b6;
+  font-size: 11px;
+}
+
+/* 接管横幅与停止 Agent */
+.handoff-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #fef3c7;
+  color: #78350f;
+  font-size: 12px;
+}
+.handoff-banner button,
+.stop-agent {
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.handoff-banner button {
+  background: #78350f;
+  color: #fff;
+}
+.stop-agent {
+  margin: 0 0 8px;
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+/* 命令栏：浮在内容区上方（打开期间主进程摘下页面视图） */
+.content {
+  position: relative;
+}
+.command-backdrop {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  background: rgba(15, 23, 42, 0.08);
+}
+.command-bar {
+  width: min(560px, 90%);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.25);
+  overflow: hidden;
+}
+.command-bar input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  border-bottom: 1px solid #e5e7eb;
+  padding: 14px 16px;
+  font-size: 15px;
+  outline: none;
+}
+.command-items {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+.command-items li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.command-items li.selected {
+  background: #eef2ff;
+}
+.command-items .kind {
+  flex: none;
+  width: 40px;
+  color: #6b7280;
+  font-size: 11px;
+}
+.command-items .title {
+  flex: none;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-items .url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+/* 标签行的右键菜单：与 Space 面板同一套弹层样式 */
+.tab-menu {
+  position: fixed;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
+}
+.tab-menu button {
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 8px;
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+}
+.tab-menu button:hover {
+  background: #f4f4f5;
+}
+
+/* 已归档：底部的开关与展开的列表 */
+.archived-toggle {
+  display: block;
+  margin: 0 0 6px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #71717a;
+  font-size: 12px;
+  cursor: pointer;
+}
+.archived-toggle.on {
+  color: #18181b;
+}
+.archived-list {
+  max-height: 200px;
+  overflow-y: auto;
+  border-top: 1px solid #e4e4e7;
+  padding: 4px 0;
+}
+.archived-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.archived-list li {
+  padding: 4px 8px;
+  border-radius: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #52525b;
+  font-size: 12px;
+  cursor: pointer;
+}
+.archived-list li:hover {
+  background: #f4f4f5;
+}
+.archived-list .empty {
+  margin: 4px 8px;
+  color: #a1a1aa;
+  font-size: 12px;
+}
+
+/* Peek：内容区的遮罩与 Peek 上方的工具条（Peek 视图本身由主进程挂在遮罩之上） */
+.peek-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.35);
+}
+.peek-bar {
+  position: absolute;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.peek-bar button {
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 10px;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.2);
+}
+
+
+/* 侧边栏底部的菜单（导入…）与导入向导 */
+.sidebar-menu-wrap {
+  position: relative;
+  float: right;
+}
+.sidebar-menu {
+  border: 0;
+  border-radius: 6px;
+  padding: 0 6px;
+  background: transparent;
+  color: #71717a;
+  font-size: 14px;
+  line-height: 18px;
+  cursor: pointer;
+}
+.sidebar-menu:hover {
+  background: #f4f4f5;
+}
+.tab-menu.sidebar-menu-list {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  width: 140px;
+}
+.import-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border-top: 1px solid #e4e4e7;
+  padding: 8px 4px;
+  font-size: 12px;
+}
+.import-wizard h3 {
+  margin: 0;
+  font-size: 13px;
+}
+.import-wizard label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #52525b;
+}
+.import-wizard label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+.import-wizard select {
+  font-size: 12px;
+}
+.import-wizard fieldset {
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+.import-wizard .actions {
+  display: flex;
+  gap: 6px;
+}
+.import-wizard .result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.import-wizard .result p {
+  flex-basis: 100%;
+  margin: 0;
+}
+.import-wizard .hint {
+  margin: 0;
+  color: #a1a1aa;
+}
+.import-wizard .error {
   color: #dc2626;
 }

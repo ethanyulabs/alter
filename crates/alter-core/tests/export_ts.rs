@@ -49,9 +49,9 @@ fn read(dir: &Path, file: &str) -> String {
     strip_comments(&src)
 }
 
-/// R13.S1 导出错误码与健康文件类型。
+/// N5 R12.S1（承接 N4 R12.S1、N3 R9.S1、N2 R23.S1、N1 R16.S1）导出错误码与健康文件类型。
 #[test]
-fn r13_s1_export_error_code_and_health_file() {
+fn n5_r12_s1_export_error_code_and_health_file() {
     let out = tempfile::tempdir().unwrap();
 
     let status = Command::new(env!("CARGO_BIN_EXE_export-ts"))
@@ -112,9 +112,10 @@ fn type_literals(src: &str) -> BTreeSet<String> {
     out
 }
 
-/// R13.S2 导出 Shell Control 消息类型。
+/// N5 R12.S2（承接 N4 R12.S2、N3 R9.S2、N2 R23.S2、N1 R16.S2）导出 Shell Control 消息类型：7 种命令、19 种事件，
+/// TabView 带 pinned、taskSpaceId、label、splitGroup。
 #[test]
-fn r13_s2_export_shell_messages() {
+fn n5_r12_s2_export_shell_messages() {
     let out = tempfile::tempdir().unwrap();
     let status = Command::new(env!("CARGO_BIN_EXE_export-ts"))
         .arg(out.path())
@@ -126,7 +127,15 @@ fn r13_s2_export_shell_messages() {
     let command = read(out.path(), "ShellCommand.ts");
     assert_eq!(
         type_literals(&command),
-        expected(&["shell.stateChanged", "shell.navigate", "shell.error"]),
+        expected(&[
+            "shell.stateChanged",
+            "shell.navigate",
+            "shell.error",
+            "shell.discard",
+            "shell.searchResults",
+            "shell.importSources",
+            "shell.importProgress",
+        ]),
         "ShellCommand.ts 内容：{command}"
     );
     let event = read(out.path(), "ShellEvent.ts");
@@ -137,7 +146,111 @@ fn r13_s2_export_shell_messages() {
             "shell.event.tabUpdated",
             "shell.event.tabActivated",
             "shell.event.tabClosed",
+            "shell.event.spaceCreated",
+            "shell.event.spaceUpdated",
+            "shell.event.spaceActivated",
+            "shell.event.spaceDeleted",
+            "shell.event.tabPinned",
+            "shell.event.tabMoved",
+            "shell.event.cdpReady",
+            "shell.event.ownershipReturned",
+            "shell.event.userTookControl",
+            "shell.event.searchRequested",
+            "shell.event.splitRequested",
+            "shell.event.splitDissolved",
+            "shell.event.tabRestored",
+            "shell.event.importSourcesRequested",
+            "shell.event.importRequested",
         ]),
         "ShellEvent.ts 内容：{event}"
+    );
+    let tab = read(out.path(), "TabView.ts");
+    for field in ["pinned: boolean", "taskSpaceId", "label", "splitGroup"] {
+        assert!(tab.contains(field), "TabView.ts 缺 {field}：{tab}");
+    }
+}
+
+/// 对象类型声明里的字段名集合。
+fn object_fields(src: &str) -> BTreeSet<String> {
+    // 跳过开头的 `import type { … }`，从类型定义的 `= {` 开始
+    let body = src
+        .split_once("= {")
+        .and_then(|(_, b)| b.rsplit_once('}'))
+        .map(|(b, _)| b)
+        .unwrap_or_else(|| panic!("不是对象类型：{src}"));
+    body.split([',', ';'])
+        .filter_map(|f| f.split_once(':'))
+        .map(|(k, _)| k.trim().trim_end_matches('?').to_owned())
+        .filter(|k| !k.is_empty())
+        .collect()
+}
+
+/// N5 R12.S3（承接 N4 R12.S3、N3 R9.S3、N2 R23.S3）导出 Gateway 类型：GatewayFile 字段恰好为 port、token、cdpPort、version，
+/// Receipt 含 ok、durationMs、popups，OwnershipChanged 字段恰好为 id、ownership、reason。
+#[test]
+fn n5_r12_s3_export_gateway_types() {
+    let out = tempfile::tempdir().unwrap();
+    let status = Command::new(env!("CARGO_BIN_EXE_export-ts"))
+        .arg(out.path())
+        .status()
+        .expect("export-ts 应当能启动");
+    assert_eq!(status.code(), Some(0));
+
+    let file = read(out.path(), "GatewayFile.ts");
+    let want: BTreeSet<String> = ["port", "token", "cdpPort", "version"]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    assert_eq!(object_fields(&file), want, "GatewayFile.ts 内容：{file}");
+
+    let receipt = object_fields(&read(out.path(), "Receipt.ts"));
+    for field in ["ok", "durationMs", "popups"] {
+        assert!(receipt.contains(field), "Receipt 缺 {field}：{receipt:?}");
+    }
+
+    let changed = read(out.path(), "OwnershipChanged.ts");
+    let want: BTreeSet<String> = ["id", "ownership", "reason"]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    assert_eq!(
+        object_fields(&changed),
+        want,
+        "OwnershipChanged.ts 内容：{changed}"
+    );
+
+    let counts = read(out.path(), "ImportCounts.ts");
+    let want: BTreeSet<String> = ["bookmarks", "history", "cookies", "skipped"]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
+    assert_eq!(
+        object_fields(&counts),
+        want,
+        "ImportCounts.ts 内容：{counts}"
+    );
+}
+
+/// N1 预设颜色另写成 `spaceColors.ts` 常量，供 Renderer 色板与 alterd 校验共用一份。
+#[test]
+fn n1_export_space_colors() {
+    let out = tempfile::tempdir().unwrap();
+    let status = Command::new(env!("CARGO_BIN_EXE_export-ts"))
+        .arg(out.path())
+        .status()
+        .expect("export-ts 应当能启动");
+    assert_eq!(status.code(), Some(0));
+
+    let src = read(out.path(), "spaceColors.ts");
+    assert!(
+        src.contains("export const SPACE_COLORS = [") && src.contains("] as const;"),
+        "spaceColors.ts 内容：{src}"
+    );
+    let colors: Vec<&str> = src.split('"').skip(1).step_by(2).collect();
+    assert_eq!(
+        colors,
+        [
+            "#6366f1", "#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#ec4899"
+        ]
     );
 }

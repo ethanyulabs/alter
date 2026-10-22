@@ -1,33 +1,26 @@
 sequenceDiagram
   autonumber
   participant U as 用户
-  participant R as Renderer (导入向导) / alter CLI
-  participant G as alterd Gateway
+  participant R as 导入向导（经 Main）/ alter CLI
+  participant G as alterd Gateway / ShellServer
   participant I as alterd ImportService
-  participant K as macOS Keychain
   participant F as Chrome / Arc 数据目录
-  participant S as alterd Store
-  participant C as Chromium (Space partition)
-  U->>R: 选择来源 chrome|arc、源 profile、目标 Space
-  R->>G: import.run {source, profilePath, spaceId, items:[bookmarks,history,cookies]}
-  G->>I: 启动导入任务 INSERT imports(status='running')
-  I->>F: 拷贝 Bookmarks(JSON) / History(SQLite) / Cookies(SQLite) 到临时目录
-  I->>I: 解析书签树、最近 90 天历史
-  I->>S: 批量 INSERT bookmarks / history
-  I->>K: security find-generic-password "Chrome Safe Storage"
-  K-->>U: 系统弹窗请求授权
-  U-->>K: 允许
-  K-->>I: 密钥（仅内存）
-  I->>I: PBKDF2 + AES-128-CBC 解密 encrypted_value
-  I->>C: CDP Network.setCookies（按域名批量，走该 Space 的 partition）
-  I->>S: UPDATE imports SET status='done', counts
-  G-->>R: 事件 import.progress / import.done {bookmarks, history, cookies}
-  R-->>U: 显示导入结果
-  alt 用户拒绝 Keychain 授权
-    K-->>I: errSecAuthFailed
-    I->>S: UPDATE imports SET status='partial', error='keychain_denied'
-    G-->>R: import.done {cookies: 0, warning: "未授权，已导入书签与历史"}
+  participant S as alterd TabService / Store
+  U->>R: 选来源 chrome|arc、profile、目标 Space、类别
+  R->>G: import.run {source, profilePath?, spaceId, items?}（向导为 shell.event.importRequested）
+  G->>I: 检查来源目录与 Space
+  I->>S: INSERT imports (status='running')
+  G-->>R: {importId}
+  I->>F: Bookmarks 拷贝；History 经 SQLite backup 取一致快照（被锁时退回拷贝）到 import-tmp/<id>
+  I->>I: spawn_blocking 解析书签树、最近 90 天历史
+  I->>S: 每批 500 条一个事务写书签（先查再插）与历史（INSERT OR IGNORE）
+  I-->>R: import.progress bookmarks / history（只推给发起方）
+  I->>S: UPDATE imports status='done' 与计数（没写进去则 failed）
+  I-->>R: import.done {status, counts}
+  I->>I: 删除 import-tmp/<id>
+  alt 来源目录不存在或没有数据文件
+    G-->>R: E_IMPORT_SOURCE_NOT_FOUND（不建 imports 行）
   end
-  alt 源浏览器正在运行导致 SQLite 锁
-    I->>I: 已先拷贝文件，不受锁影响
+  alt alterd 在导入中途退出
+    Note over I,S: 下次启动把 running 记为 failed（interrupted），删除 import-tmp
   end

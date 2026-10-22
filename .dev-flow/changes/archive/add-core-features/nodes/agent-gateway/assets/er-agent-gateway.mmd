@@ -1,0 +1,27 @@
+erDiagram
+  spaces ||--o{ task_spaces : "space_id"
+  task_spaces ||--o{ task_pages : "task_space_id"
+  tabs |o--o| task_pages : "tab_id"
+  task_spaces {
+    integer id PK "TaskSpace id，CLI 用它 resume"
+    text space_id FK
+    text name
+    text ownership "本节点固定 agent"
+    text status "active|finished"
+    integer page_budget "默认 8"
+    integer created_at
+    integer finished_at
+  }
+  task_pages {
+    integer id PK
+    integer task_space_id FK
+    text label "p1 p2 …，不复用"
+    text tab_id FK "托管的标签"
+    text opened_by "agent|user"
+    integer closed_at "关闭或归还时间"
+  }
+  tabs {
+    text id PK
+    text space_id FK
+    text url
+  }

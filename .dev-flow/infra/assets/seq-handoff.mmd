@@ -2,29 +2,29 @@ sequenceDiagram
   autonumber
   participant A as Agent 脚本 (alter-sdk)
   participant G as alterd Gateway
-  participant T as alterd TaskSpaceManager
+  participant T as alterd TabService（ownership）
+  participant X as alterd CdpMux
   participant M as Electron Main
   participant R as Renderer
   participant U as 用户
-  A->>G: taskSpace.handOff {spaceId}
-  G->>T: ownership agent -> user
-  T->>T: UPDATE task_spaces SET ownership='user'
-  T->>M: shell.setOverlay {spaceId, mode="user"}
-  M->>R: 隐藏 agent 光标，显示「等待你操作」横幅
-  T-->>A: ok
-  A-->>A: 脚本结束，agent 向用户说明要做什么
-  U->>R: 在页面上完成登录 / 验证码
-  U->>R: 点击「交还给 Agent」
-  R->>M: IPC taskSpace.returnToAgent
-  M->>G: shell.event.ownershipReturned {spaceId}
-  G->>T: ownership user -> agent
-  T-->>R: 事件 taskSpace.ownershipChanged
-  A->>G: takeOverTaskSpace {spaceId}（新一轮脚本）
-  G-->>A: {ownership: "agent", userPage: p1}
-  alt 用户在 agent 操作中途接管（点击页面或「停止 Agent」）
-    R->>M: IPC taskSpace.takeControl
-    M->>G: shell.event.userTookControl {spaceId}
-    G->>T: ownership -> user，挂起 CDP 会话
-    A->>G: page.click {label=p1}
-    G-->>A: 错误 E_USER_CONTROL（脚本必须停止，不重试）
+  A->>G: taskSpace.handOff {id}
+  G->>T: ownership agent → user（写库与接管信号同一步）
+  T-->>M: shell.stateChanged（taskSpaces[].ownership=user）
+  M-->>R: 「等待你操作」横幅与「交还给 Agent」按钮
+  G->>X: 隐藏该 TaskSpace 页面上的叠层
+  G-->>A: {}；通知 taskSpace.ownershipChanged {reason: handOff}
+  A-->>A: waitForControl() 等待，或脚本结束、agent 向用户说明
+  U->>R: 在页面上完成登录 / 验证码，点「交还给 Agent」
+  R->>M: IPC taskSpace.return {taskSpaceId}
+  M->>T: shell.event.ownershipReturned {taskSpaceId}
+  T->>T: ownership user → agent
+  T-->>A: 通知 taskSpace.ownershipChanged {reason: returned}
+  A->>G: taskSpace.takeOver {id}
+  G-->>A: {ownership: agent, userPage}
+  alt 用户在 agent 操作中途点「停止 Agent」
+    R->>M: IPC taskSpace.stop {taskSpaceId}
+    M->>T: shell.event.userTookControl {taskSpaceId}
+    T->>T: ownership → user，同一步递增接管信号
+    Note over G,X: 正在执行、排队中与入队未写出的命令中止；CDP 转发连接断开
+    G-->>A: E_USER_CONTROL（SDK 抛出，不重试）
   end

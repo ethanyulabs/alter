@@ -1,5 +1,7 @@
 //! cli 能力的场景测试：以真实的 `alter` 二进制驱动，数据目录用临时目录隔离。
 
+mod common;
+
 use assert_cmd::Command;
 
 fn alter() -> Command {
@@ -117,4 +119,36 @@ fn r5_s3_status_with_stale_health_file() {
         json_line(&out),
         serde_json::json!({ "running": false, "stale": true })
     );
+}
+
+/// N2 R22.S1 alter spaces list：文本一行含 Personal 与 0 tabs；--json 的 spaces[0].name 为 Personal。
+#[test]
+fn n2_r22_s1_spaces_list_text_and_json() {
+    let home = tempfile::tempdir().unwrap();
+    let _d = common::Daemon::start(home.path());
+
+    let out = alter()
+        .args(["spaces", "list"])
+        .env("ALTER_HOME", home.path())
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    let text = String::from_utf8(out).unwrap();
+    assert_eq!(text.lines().count(), 1, "应当恰好一行：{text:?}");
+    assert!(
+        text.contains("Personal") && text.contains("0 tabs"),
+        "输出：{text:?}"
+    );
+
+    let out = alter()
+        .args(["spaces", "list", "--json"])
+        .env("ALTER_HOME", home.path())
+        .assert()
+        .code(0)
+        .get_output()
+        .stdout
+        .clone();
+    assert_eq!(json_line(&out)["spaces"][0]["name"], "Personal");
 }

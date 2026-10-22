@@ -1,0 +1,21 @@
+sequenceDiagram
+  autonumber
+  participant C as 客户端（CLI / 向导经 Main）
+  participant I as ImportService
+  participant F as 源 profile
+  participant S as TabService / Store
+  C->>I: import.run {source, profilePath?, spaceId, items}
+  I->>F: 检查目录与文件
+  alt 不存在
+    I-->>C: E_IMPORT_SOURCE_NOT_FOUND
+  end
+  I->>S: INSERT imports (running)
+  I-->>C: {importId}
+  I->>F: 拷贝 Bookmarks / History 到临时目录
+  I->>S: 批量写书签（INSERT OR IGNORE）
+  I-->>C: import.progress bookmarks
+  I->>S: 批量写近 90 天历史（INSERT OR IGNORE）
+  I-->>C: import.progress history
+  I->>S: UPDATE imports status=done, counts
+  I-->>C: import.done
+  I->>I: 删除临时副本

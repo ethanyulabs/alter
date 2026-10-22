@@ -1,5 +1,7 @@
 //! alter-core：协议类型、SQLite 存储与迁移，供 alterd 与 alter CLI 共用。
 
+pub mod config;
+pub mod gateway_file;
 pub mod health;
 pub mod paths;
 pub mod protocol;

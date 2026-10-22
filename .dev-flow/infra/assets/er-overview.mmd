@@ -13,6 +13,7 @@ erDiagram
     integer position "排序"
     integer created_at "UTC 毫秒"
     integer archived_at "归档时间，NULL 表示活跃"
+    integer last_active_at "0002：最大者为当前 Space"
   }
   tabs {
     text id PK "ULID"
@@ -21,6 +22,7 @@ erDiagram
     text title
     text favicon_url
     integer pinned "0/1"
+    text pinned_url "0002：固定时的 URL，关闭后回到它"
     integer position
     text split_group "同组标签并排显示，NULL 单页"
     integer last_active_at "UTC 毫秒"

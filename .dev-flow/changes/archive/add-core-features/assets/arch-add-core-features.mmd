@@ -1,0 +1,49 @@
+flowchart LR
+  user([用户]):::frontend
+  agent([Agent<br/>Claude Code 等]):::external
+  subgraph app [alter.app（Electron 壳）]
+    renderer[Renderer<br/>Sidebar · SpaceBar · CommandBar<br/>SplitView · Peek · HandoffBanner · ImportWizard]:::frontend
+    main[Electron Main<br/>ShellLink · TabViews · Menu]:::frontend
+    chromium[Chromium<br/>每个 Space 一个 partition<br/>remote-debugging 127.0.0.1]:::frontend
+  end
+  subgraph daemon [alterd]
+    shell[ShellServer]:::backend
+    tabs[TabService]:::backend
+    gateway[Gateway<br/>WS JSON-RPC + token]:::backend
+    tsm[TaskSpaceManager]:::backend
+    cdpmux[CdpMux]:::backend
+    forward[CDP 转发端点<br/>Bearer token · TCP 透明转发]:::backend
+    importer[ImportService]:::backend
+    archiver[Archiver]:::backend
+    store[(SQLite)]:::data
+  end
+  cli[alter CLI]:::backend
+  sdk[alter-sdk（Bun）]:::backend
+  chrome[[Chrome / Arc 数据]]:::external
+  user -->|点击 · 快捷键| renderer
+  renderer -->|IPC| main
+  main -->|WebContentsView| chromium
+  main -->|Unix socket 事件（含 searchRequested · importSourcesRequested · importRequested）| shell
+  shell -->|全量快照 · discard · navigate · searchResults · importSources · importProgress| main
+  shell -->|事件| tabs
+  tabs -->|读写| store
+  archiver -->|归档过期标签| tabs
+  agent -->|alter nodejs| cli
+  cli -->|启动| sdk
+  sdk -->|ws JSON-RPC| gateway
+  cli -->|spaces · import| gateway
+  gateway -->|taskSpace.* page.*| tsm
+  gateway -->|import.*| importer
+  tsm -->|建 / 关标签 · ownership| tabs
+  tsm -->|CDP 会话| cdpmux
+  importer -->|书签 · 历史 · imports 行（批量请求）| tabs
+  importer -->|读取| chrome
+  cdpmux -->|CDP| chromium
+  agent -.->|Playwright connectOverCDP| forward
+  forward -->|鉴权后转发（有 TaskSpace 由用户控制时 423 / 断开）| chromium
+  class renderer,main,gateway,tsm,cdpmux,forward,importer,archiver,cli,sdk changed
+  classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
+  classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b
+  classDef data fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef external fill:#f1f5f9,stroke:#64748b,color:#1e293b,stroke-dasharray:4 3
+  classDef changed stroke-width:3px,stroke:#dc2626

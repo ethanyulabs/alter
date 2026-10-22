@@ -1,0 +1,25 @@
+sequenceDiagram
+  autonumber
+  participant S as alter-sdk（alter nodejs）
+  participant G as Gateway
+  participant T as TaskSpaceManager
+  participant B as TabService
+  participant M as Electron Main
+  participant C as CdpMux
+  participant R as Chromium
+  S->>G: taskSpace.create {name}
+  G->>T: 创建 TaskSpace（ownership=agent）
+  T->>B: 在当前 Space 末尾建标签（不抢激活）
+  T-->>S: {id, spaceId, pages:[p1]}（写库、发布快照后即返回，不等页面就绪）
+  B-->>M: shell.stateChanged（标签带 taskSpaceId、label=p1）
+  M->>R: 为 agent 标签建 WebContentsView（不挂到窗口，异步）
+  M->>B: shell.event.tabUpdated（targetId，来自 getOrCreateDevToolsTargetId）
+  S->>G: page.click {label:p1, selector}
+  G->>T: 入队（检查 ownership）
+  T->>C: 首次用这个页面：等 targetId 上报（最多 5 秒），按它 attach（flatten）
+  T->>C: 解析选择器 → Input.dispatchMouseEvent
+  C->>R: CDP
+  T-->>S: receipt {ok, durationMs, popups}
+  alt ownership=user
+    T-->>S: 错误 E_USER_CONTROL（SDK 抛出，不重试）
+  end

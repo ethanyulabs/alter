@@ -1,17 +1,18 @@
 //! Shell Control Channel 的服务端：`ALTER_HOME/shell.sock`，每行一个 JSON。
-//! 连接建立即发送当前全量快照，之后每次快照变化再发一次。
+//! 连接建立即发送当前全量快照，之后每次快照变化再发一次；每个连接上的写出顺序与 TabService
+//! 处理事件的顺序一致（快照与只回给它的消息走同一条发件箱）。
 
 use std::io;
 use std::path::{Path, PathBuf};
 
-use alter_core::protocol::{ShellCommand, ShellEvent};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::unix::OwnedWriteHalf;
+use alter_core::protocol::ShellEvent;
+use std::sync::Arc;
+
+use tokio::io::{AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::mpsc;
 
-use crate::tabs::{Request, Snapshots};
+use crate::tabs::Request;
 
 /// socket 文件路径。
 pub fn sock_path(home: &Path) -> PathBuf {
@@ -36,52 +37,31 @@ pub fn bind(path: &Path) -> io::Result<UnixListener> {
 }
 
 /// 接受连接，每个连接一个任务；事件经 `requests` 交给 TabService。
-pub async fn serve(
-    listener: UnixListener,
-    snapshots: Snapshots,
-    requests: mpsc::UnboundedSender<Request>,
-) {
+pub async fn serve(listener: UnixListener, requests: mpsc::UnboundedSender<Request>) {
     loop {
         match listener.accept().await {
             Ok((stream, _)) => {
-                tokio::spawn(connection(stream, snapshots.clone(), requests.clone()));
+                tokio::spawn(connection(stream, requests.clone()));
             }
             Err(e) => tracing::warn!(error = %e, "接受 shell 连接失败"),
         }
     }
 }
 
-/// 一个连接：先发当前快照；之后每次状态变化发一份新快照，收到的每行解析为事件交给 TabService，
-/// 只回给本连接的消息（错误、导航指令）经私有通道写出。对端关闭或写失败即结束。
-async fn connection(
-    stream: UnixStream,
-    snapshots: Snapshots,
-    requests: mpsc::UnboundedSender<Request>,
-) {
+/// 一个连接：向 TabService 登记自己的发件箱（先收到当前快照），之后按顺序写出发件箱里的每一行；
+/// 收到的每行解析为事件交给 TabService。对端关闭或写失败即结束。
+async fn connection(stream: UnixStream, requests: mpsc::UnboundedSender<Request>) {
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
-    let (reply_tx, mut reply_rx) = mpsc::unbounded_channel::<ShellCommand>();
-
-    let (first, mut updates) = snapshots.subscribe();
-    if write_line(&mut write, &first).await.is_err() {
+    let (outbox, mut out_rx) = mpsc::unbounded_channel::<Arc<str>>();
+    if requests.send(Request::Connect(outbox.clone())).is_err() {
         return;
     }
     loop {
         tokio::select! {
-            update = updates.recv() => match update {
-                Ok(line) => {
-                    if write_line(&mut write, &line).await.is_err() {
-                        return;
-                    }
-                }
-                // 落后太多：最旧的几份被丢弃，缓冲里更新的快照仍会依次送达
-                Err(RecvError::Lagged(skipped)) => {
-                    tracing::warn!(skipped, "shell 连接落后，跳过了部分快照");
-                }
-                Err(RecvError::Closed) => return,
-            },
-            Some(cmd) = reply_rx.recv() => {
-                let Ok(line) = serde_json::to_string(&cmd) else { continue };
+            // TabService 已结束：不会再有状态更新，关掉连接让客户端知道
+            _ = requests.closed() => return,
+            Some(line) = out_rx.recv() => {
                 if write_line(&mut write, &line).await.is_err() {
                     return;
                 }
@@ -89,7 +69,7 @@ async fn connection(
             line = lines.next_line() => match line {
                 Ok(Some(line)) => match serde_json::from_str::<ShellEvent>(&line) {
                     Ok(event) => {
-                        let req = Request { event, reply: reply_tx.clone() };
+                        let req = Request::Event { event, outbox: outbox.clone() };
                         if requests.send(req).is_err() {
                             return;
                         }
@@ -105,7 +85,7 @@ async fn connection(
     }
 }
 
-async fn write_line(write: &mut OwnedWriteHalf, line: &str) -> io::Result<()> {
+async fn write_line<W: AsyncWrite + Unpin>(write: &mut W, line: &str) -> io::Result<()> {
     write.write_all(line.as_bytes()).await?;
     write.write_all(b"\n").await
 }

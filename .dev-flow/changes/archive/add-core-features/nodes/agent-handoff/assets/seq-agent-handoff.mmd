@@ -1,0 +1,29 @@
+sequenceDiagram
+  autonumber
+  participant A as Agent 脚本
+  participant G as Gateway
+  participant T as TaskSpaceManager
+  participant B as TabService
+  participant M as Electron Main
+  participant R as Renderer
+  participant U as 用户
+  A->>G: taskSpace.handOff {id}
+  G->>T: ownership agent → user
+  T->>B: 写 task_spaces.ownership（user_since 只记在内存）
+  B-->>M: 快照 taskSpaces[id].ownership = user
+  M-->>R: 显示接管横幅
+  T->>G: 通知 ownershipChanged reason=handOff
+  G-->>A: {}
+  U->>R: 完成登录后点「交还给 Agent」
+  R->>M: IPC taskSpace.return {taskSpaceId}
+  M->>B: shell.event.ownershipReturned {taskSpaceId}
+  B->>T: ownership user → agent
+  T->>G: 通知 ownershipChanged reason=returned
+  A->>G: taskSpace.takeOver {id}
+  G-->>A: {ownership: agent, userPage}
+  alt 用户在 agent 执行中点「停止 Agent」
+    R->>M: IPC taskSpace.stop {taskSpaceId}
+    M->>B: shell.event.userTookControl {taskSpaceId}
+    B->>T: ownership → user，取消队列里正在执行的命令
+    T-->>A: 正在执行的命令返回 E_USER_CONTROL
+  end

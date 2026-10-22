@@ -1,8 +1,14 @@
 //! alterd：alter 的守护进程。
 
+mod archive;
+mod cdp;
+mod gateway;
+mod import;
 mod lifecycle;
+mod partitions;
 mod shell;
 mod tabs;
+mod takeover;
 
 use std::process::ExitCode;
 

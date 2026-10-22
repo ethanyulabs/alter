@@ -1,0 +1,24 @@
+sequenceDiagram
+  autonumber
+  participant U as 用户
+  participant R as Renderer CommandBar
+  participant M as Electron Main
+  participant D as alterd TabService
+  U->>R: Cmd+T（菜单 tab.new）
+  M->>M: 摘下当前挂载的页面视图
+  M-->>R: IPC commandBar.open
+  U->>R: 输入 docs
+  R->>M: IPC commandBar.search {query, requestId}
+  M->>D: shell.event.searchRequested {requestId, query}
+  D->>D: 查标签、Space、历史（Unicode 折叠后字面包含，最多 8 项）
+  D-->>M: shell.searchResults {requestId, items}
+  M-->>R: 结果（丢弃 requestId 过期的）
+  U->>R: 回车选中 tab 项
+  R->>M: IPC commandBar.execute {item}
+  M->>D: spaceActivated + tabActivated
+  D-->>M: shell.stateChanged
+  M->>M: 关闭命令栏，按快照挂载视图
+  alt Esc
+    R->>M: IPC commandBar.close
+    M->>M: 重新挂载原来的视图
+  end

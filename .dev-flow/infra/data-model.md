@@ -17,6 +17,7 @@ erDiagram
     integer position "排序"
     integer created_at "UTC 毫秒"
     integer archived_at "归档时间，NULL 表示活跃"
+    integer last_active_at "0002：最大者为当前 Space"
   }
   tabs {
     text id PK "ULID"
@@ -25,6 +26,7 @@ erDiagram
     text title
     text favicon_url
     integer pinned "0/1"
+    text pinned_url "0002：固定时的 URL，关闭后回到它"
     integer position
     text split_group "同组标签并排显示，NULL 单页"
     integer last_active_at "UTC 毫秒"
@@ -184,11 +186,19 @@ CREATE TABLE imports (
 );
 ```
 
+```sql
+-- 迁移 0002：记住当前 Space、固定标签的 URL（crates/alter-core/migrations/0002_spaces_tabs.sql，add-core-features N1）
+ALTER TABLE spaces ADD COLUMN last_active_at INTEGER;  -- 最大者为当前 Space；全为 NULL 时取 position 最小的
+ALTER TABLE tabs ADD COLUMN pinned_url TEXT;           -- 固定时的 URL；关闭固定标签后回到它
+UPDATE tabs SET pinned_url = url WHERE pinned = 1;
+-- 每个 Space 的未归档标签按 (pinned DESC, position) 重新编号为 0..n-1；已归档的 position 为 -1
+```
+
 ## 规则
-- 一个 Space 一个 partition：partition 名由 `spaces.id` 派生（`persist:space-<id>`），不单独存储；删除 Space 时 alterd 负责清理 partition 数据目录。
+- 一个 Space 一个 partition：partition 名由 `spaces.id` 派生（`persist:space-<id>`），不单独存储。删除 Space 是硬删（级联删除它的标签、书签、历史、TaskSpace、导入记录）；Electron 立即 `clearStorageData` 与清缓存，alterd 下次启动时删除不再对应任何 Space 的 partition 目录（运行中 Chromium 可能还持有文件）。
 - `tabs.space_id` 不可变：标签不能在 Space 之间移动（避免 Cookie 隔离被绕过）；需要时复制 URL 新建。
-- 激活标签不单独存储：每个 Space 中未归档且 `last_active_at` 最大的标签即激活标签；写入时取「同 Space 最大值 + 1」与当前时间中较大者，保证严格递增。激活的 Space 目前取未归档 Space 中 `position` 最小的（add-space-management 再持久化）。
-- 关闭标签即归档：只置 `tabs.archived_at`，不删除行；`position` 只增不重排，留下的空洞不影响排序。
+- 激活标签不单独存储：每个 Space 中未归档且 `last_active_at` 最大的标签即激活标签；写入时取「同 Space 最大值 + 1」与当前时间中较大者，保证严格递增。当前 Space 由 `spaces.last_active_at` 最大者决定（迁移 0002），全为 NULL 时取 `position` 最小的；重启后回到上次的 Space。
+- 关闭标签即归档：只置 `tabs.archived_at`（`position` 置 -1），不删除行；关闭固定标签不归档，只卸载页面并回到 `pinned_url`。同一 Space 的未归档标签按（固定在前，`position`）连续编号 0..n-1，固定、拖动、关闭时重排。
 - 首次启动（没有未归档的 Space）时建默认 Space `Personal`（颜色取列默认值 `#6366f1`）。
 - partition 的磁盘目录是 `ALTER_HOME/chromium/Partitions/space-<id 小写>`（Electron 44 实测会转成小写），清理时按小写匹配。
 - 固定标签（`pinned = 1`）不参与自动归档；归档只设 `archived_at`，不删除；恢复即清空该字段并追加到列表末尾。
@@ -196,7 +206,8 @@ CREATE TABLE imports (
 - `task_pages.label` 在 TaskSpace 内唯一，关闭后不复用；一个活跃标签同一时刻只能被一个 TaskSpace 托管（部分唯一索引）。
 - TaskSpace 不跨 Space：`task_pages.tab_id` 指向的标签必须与 `task_spaces.space_id` 一致，由代码在 adopt 时校验。
 - 时间戳全部 UTC 毫秒整数；没有软删除之外的删除，`ON DELETE CASCADE` 只在删除 Space 时触发。
-- 导入去重：书签按（父节点、URL、标题）唯一；历史按（URL、访问时间）唯一，重复导入是幂等的。
+- 浏览历史：主框架每次完成导航写一行（`source = alter`，`visited_at` 取当前时间与该 Space 最新一条 + 1 中较大者），之后的标题回写只更新该标签最近一次导航写入的那一行；搜索按 Unicode 小写折叠（SQL 函数 `alter_fold`）后字面包含，按 URL 去重。
+- 导入去重：书签按（Space、父节点、标题、URL）先查再插（根级条目与文件夹的 NULL 不能靠唯一索引）；历史按（Space、URL、访问时间）唯一，重复导入是幂等的。`imports` 一次导入一行；alterd 启动时把遗留的 `running` 记为 `failed`（`error = interrupted`）。
 - 写入只经 alterd 的单写连接；Electron 和 CLI 不打开数据库文件。
-- 迁移：`crates/alter-core/migrations/NNNN_<name>.sql` 按序号执行，每个文件一个事务，执行后写 `schema_version`；alterd 启动时自动迁移，降级不支持。备份文件 `alter.db.bak-<version>` 计划在升级前自动生成，在第一个非初始迁移（0002）时实现，目前只有 0001。
+- 迁移：`crates/alter-core/migrations/NNNN_<name>.sql` 按序号执行，每个文件一个事务，执行后写 `schema_version`；alterd 启动时自动迁移，降级不支持。有待执行的迁移时，先把数据库备份为 `alter.db.bak-<迁移前的版本>`（例如从 1 升到 2 时 `alter.db.bak-1`），备份失败则不迁移；全新库或已是最新时不备份。
 - 数据目录（`ALTER_HOME`）里除 `alter.db`（及 WAL 文件）外还有 alterd 的健康文件 `alterd.json` 与实例锁 `alterd.lock`，二者都不是数据库内容，格式见 api.md「进程状态」。

@@ -73,3 +73,50 @@ Electron 壳：窗口、托管 alterd、给 Renderer 的 IPC。
 #### Scenario: 继续读走 alterd 的 stderr
 - WHEN `ALTER_ALTERD_PATH` 指向一个假 alterd，app 显示 `alterd 运行中` 后关闭 app 的 stderr 管道的读端，假 alterd 随后向 stderr 写出 256 KB
 - THEN 从让它开始写起 3 秒内写完（它在写完后建出标记文件）
+
+### Requirement: 快捷键
+系统 SHALL 在应用菜单中提供下表的菜单项，按下快捷键或点击菜单项时执行对应操作：
+
+| 菜单项 id | 快捷键 | 操作 |
+|---|---|---|
+| `tab.new` | `CmdOrCtrl+T` | 打开命令栏 |
+| `tab.close` | `CmdOrCtrl+W` | 关闭当前 Space 的激活标签 |
+| `address.focus` | `CmdOrCtrl+L` | 聚焦地址框并选中其中文字 |
+| `nav.reload` | `CmdOrCtrl+R` | 刷新激活标签 |
+| `nav.back` | `CmdOrCtrl+[` | 激活标签后退 |
+| `nav.forward` | `CmdOrCtrl+]` | 激活标签前进 |
+| `space.1` … `space.9` | `CmdOrCtrl+1` … `CmdOrCtrl+9` | 切到第 N 个 Space，不存在时什么也不做 |
+| `tab.next` | `Ctrl+Tab` | 激活列表中的下一个标签，到末尾后回到第一个 |
+| `tab.prev` | `Ctrl+Shift+Tab` | 激活列表中的上一个标签，到开头后回到最后一个 |
+| `tab.togglePin` | `CmdOrCtrl+Shift+D` | 固定或取消固定激活标签 |
+
+#### Scenario: 菜单项与快捷键
+- WHEN app 启动后在主进程读取 `Menu.getApplicationMenu()`
+- THEN 上表每个菜单项 id 都存在，且其 `accelerator` 与表中的快捷键字符串完全相同
+
+#### Scenario: 关闭激活标签
+- WHEN app 当前 Space 依次打开了本地测试页 `/a`、`/b`（`Page B` 激活），在主进程点击菜单项 `tab.close`
+- THEN 1 秒内侧边栏标签列表恰好为 `Page A`，且它处于激活样式
+
+#### Scenario: 按序号切换 Space
+- WHEN app 有按顺序排列的 Space `Personal`、`Work`，当前为 `Work`，在主进程点击菜单项 `space.1`
+- THEN 1 秒内底部的 Space 名称显示 `Personal`
+- AND 再点击菜单项 `space.3` 后 1 秒，底部的 Space 名称仍为 `Personal`
+
+#### Scenario: 循环切换标签
+- WHEN app 当前 Space 依次打开了本地测试页 `/a`、`/b`、`/c`（`Page C` 激活），在主进程点击菜单项 `tab.next`
+- THEN 1 秒内 `Page A` 处于激活样式
+- AND 再点击菜单项 `tab.prev` 后 1 秒内 `Page C` 处于激活样式
+
+#### Scenario: 新标签与聚焦地址框
+- WHEN app 当前 Space 打开了本地测试页 `/a`，在主进程点击菜单项 `tab.new`，然后在键盘上输入 `127.0.0.1:<port>/b` 并回车
+- THEN 2 秒内侧边栏依次为 `Page A`、`Page B`，`Page B` 处于激活样式
+- AND 点击菜单项 `address.focus` 后，Renderer 的 `document.activeElement` 是地址框
+
+#### Scenario: 快捷键固定激活标签
+- WHEN app 当前 Space 依次打开了本地测试页 `/a`、`/b`（`Page B` 激活），在主进程点击菜单项 `tab.togglePin`
+- THEN 1 秒内侧边栏依次为 `Page B`、`Page A`，`Page B` 在固定分区
+
+#### Scenario: 快捷键刷新
+- WHEN 激活标签显示本地测试页 `/count`（服务器记录的请求次数为 1），在主进程点击菜单项 `nav.reload`
+- THEN 2 秒内服务器记录的 `/count` 请求次数为 2

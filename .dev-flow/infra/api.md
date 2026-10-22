@@ -15,7 +15,7 @@ Gateway（JSON-RPC 方法）。`label` 是 Page 标签，`selector` 接受 `@ref
 
 | 方法 | 路径 | 用途 | 请求 | 响应 | 错误 |
 |---|---|---|---|---|---|
-| RPC | `hello` | 握手，交换版本与预算 | `{clientVersion}` | `{protocolVersion, pageBudget, spaces:[{id,name}]}` | `E_PROTOCOL_VERSION` |
+| RPC | `hello` | 握手，交换版本与预算 | `{clientVersion, protocolVersion}` | `{protocolVersion, pageBudget, spaces:[{id,name}]}` | `E_PROTOCOL_VERSION` |
 | RPC | `space.list` | 列出 Space | `{}` | `{spaces:[{id,name,color,tabCount,archived}]}` | — |
 | RPC | `taskSpace.create` | 新建 TaskSpace，附带 `p1` | `{name, spaceId?, profileId?}` | `{id, spaceId, ownership:"agent", pages:["p1"]}` | `E_SPACE_NOT_FOUND` |
 | RPC | `taskSpace.resume` | 恢复已有 TaskSpace | `{id}` | `{id, spaceId, ownership, pages:[…]}` | `E_TASK_SPACE_NOT_FOUND` |
@@ -38,27 +38,37 @@ Gateway（JSON-RPC 方法）。`label` 是 Page 标签，`selector` 接受 `@ref
 | RPC | `page.dialog` | 处理 JS 对话框 | `{id,label,accept,promptText?}` | `{}` | `E_NO_MATCH`（无对话框） |
 | RPC | `page.close` | 关闭 agent 创建的 Page | `{id,label}` | `{}` | — |
 | RPC | `page.cdp` / `taskSpace.cdp` | 透传 CDP 命令（页面级 / Target、Browser 级） | `{id,label?,method,params}` | `{result}` | — |
-| RPC | `import.run` | 导入 Chrome / Arc profile | `{source:"chrome"\|"arc", profilePath?, spaceId, items:[…]}` | `{importId}` + 事件 | `E_IMPORT_SOURCE_NOT_FOUND` |
-| RPC | `import.status` | 导入进度 | `{importId}` | `{status, counts, error?}` | — |
-| HTTP | `GET http://127.0.0.1:<cdpPort>/json/version` | CDP 转发端点，供 Playwright `connectOverCDP` | — | 标准 CDP 发现 JSON | — |
+| RPC | `import.run` | 导入 Chrome / Arc profile 的书签与最近 90 天历史（省略 `profilePath` 用数据根目录下的 `Default`；省略 `items` 为书签与历史；含 `cookies` 时 `E_INVALID_ARGUMENT`，Cookie 导入待后续 change） | `{source:"chrome"\|"arc", profilePath?, spaceId, items?:["bookmarks"\|"history"]}` | `{importId}`，之后 `import.progress` / `import.done` 只推给发起连接 | `E_IMPORT_SOURCE_NOT_FOUND`、`E_SPACE_NOT_FOUND`、`E_INVALID_ARGUMENT` |
+| RPC | `import.status` | 导入的状态与计数（本次运行内存里的为准，`skipped` 重启后报 0；上次退出时未完成的为 `failed` / `interrupted`） | `{importId}` | `{status:"running"\|"done"\|"partial"\|"failed", counts:{bookmarks,history,cookies,skipped}, warning?, error?}` | `E_INVALID_ARGUMENT`（没有这个导入） |
+| HTTP / WS | `http://127.0.0.1:<cdpPort>/…` | CDP 转发端点，供 Playwright `connectOverCDP`：读请求头校验 `Authorization: Bearer <token>` 后把字节原样转给 Chromium（发现接口与 WebSocket 都这样）；有 TaskSpace 由用户控制时回 423，接管时断开已有连接；Chromium 未就绪回 503 | — | 标准 CDP 发现 JSON / CDP WebSocket | 401、423、502、503 |
 
 `receipt` 结构：`{ok, durationMs, popups:[{label,targetId}], dialog?:{type,message}}`。它只描述已派发的动作和立即观察到的弹窗，不代表页面最终状态。
 
-Shell Control Channel（alterd ↔ Electron Main，Unix socket `ALTER_HOME/shell.sock`，权限 0600，alterd 为服务端，每行一个 JSON 对象，`type` 区分消息，字段 camelCase；Rust 类型 `alter_core::protocol::{ShellCommand, ShellEvent}`，TS 类型由 `packages/protocol` 生成）。已实现（add-spaces-sidebar）：
+Shell Control Channel（alterd ↔ Electron Main，Unix socket `ALTER_HOME/shell.sock`，权限 0600，alterd 为服务端，每行一个 JSON 对象，`type` 区分消息，字段 camelCase；Rust 类型 `alter_core::protocol::{ShellCommand, ShellEvent}`，TS 类型由 `packages/protocol` 生成）。add-spaces-sidebar 与 add-core-features 已实现：
 
 | 方向 | 消息 | 用途 | 字段 |
 |---|---|---|---|
-| alterd → Electron | `shell.stateChanged` | 全量快照：连接建立时发一份，之后每个改变状态的事件发一份（连接积压超过 256 份时跳过最旧的，最新一份必达） | `{activeSpaceId, spaces:[{id,name,color}], tabs:[{id,spaceId,url,title,faviconUrl,active}]}`（只含未归档的；Space 按 position，标签先按 Space 再按 position；每个 Space 至多一个 `active`） |
+| alterd → Electron | `shell.stateChanged` | 全量快照：连接建立时发一份，之后每个改变状态的事件发一份（连接积压超过 256 份时跳过最旧的，最新一份必达） | `{activeSpaceId, spaces:[{id,name,color}], tabs:[{id,spaceId,url,title,faviconUrl?,active,pinned,discarded,taskSpaceId?,label?,splitGroup?}], taskSpaces:[{id,spaceId,name,ownership,status}], archived:[{id,spaceId,url,title,archivedAt}]}`（每个 Space 最近 50 个归档） |
 | alterd → Electron | `shell.navigate` | 在已有标签打开 URL，只发给请求方 | `{tabId, url}` |
 | alterd → Electron | `shell.error` | 事件被拒绝，只发给请求方 | `{code, message}` |
-| Electron → alterd | `shell.event.openRequested` | 地址输入或网页弹窗：不带 `tabId` 在该 Space 末尾新建并激活标签；带 `tabId` 回 `shell.navigate`。输入规范化：带 `<scheme>://`、`about:`、`blob:` 原样；`localhost` / IPv4 补 `http://`；「主机名[:端口][/路径]」补 `https://`；其余走 Google 搜索 | `{spaceId, input, tabId?}`；错误 `E_SPACE_NOT_FOUND`、`E_TAB_NOT_FOUND`、`E_INVALID_ARGUMENT`（空输入） |
-| Electron → alterd | `shell.event.tabUpdated` | 页面状态回写（只认主框架导航），值有变化才广播 | `{tabId, url?, title?, faviconUrl?}`；错误 `E_TAB_NOT_FOUND` |
+| alterd → Electron | `shell.discard` | 关闭固定标签：只卸载页面，只发给请求方 | `{tabId}` |
+| alterd → Electron | `shell.searchResults` | 命令栏搜索结果，只发给请求方 | `{requestId, items:[{kind:"tab"\|"space"\|"bookmark"\|"history"\|"open", title, url?, tabId?, spaceId?, input?}]}`（标签、Space、当前 Space 的书签、历史，合计至多 8 项，最后附「打开或搜索」；空输入为空数组） |
+| alterd → Electron | `shell.importSources` | 可导入的 profile，只发给请求方 | `{requestId, chrome:[name], arc:[name]}` |
+| alterd → Electron | `shell.importProgress` | 导入进度，只发给发起连接；最后一条的 `status` 为 done / partial / failed；没能开始时只有一条 failed（`importId` 0，`error` 为 `<错误码>: <说明>`） | `{requestId, importId, status, item?, counts, warning?, error?}` |
+| Electron → alterd | `shell.event.openRequested` | 地址输入或网页弹窗：不带 `tabId` 在该 Space 末尾新建并激活标签；带 `tabId` 回 `shell.navigate`；来源是 agent 页面的弹窗记为同一 TaskSpace 的下一个 Page。输入规范化：带 `<scheme>://`、`about:`、`blob:` 原样；`localhost` / IPv4 补 `http://`；「主机名[:端口][/路径]」补 `https://`；其余走 Google 搜索 | `{spaceId, input, tabId?, openerTabId?}`；错误 `E_SPACE_NOT_FOUND`、`E_TAB_NOT_FOUND`、`E_INVALID_ARGUMENT`（空输入） |
+| Electron → alterd | `shell.event.tabUpdated` | 页面状态回写（只认主框架导航，主框架导航写一条历史），值有变化才广播；视图建好后上报一次 CDP targetId（只记在内存） | `{tabId, url?, title?, faviconUrl?, targetId?}`；错误 `E_TAB_NOT_FOUND` |
 | Electron → alterd | `shell.event.tabActivated` | 激活标签（`last_active_at` 取同 Space 最大值 + 1 与当前时间中较大者） | `{tabId}`；错误 `E_TAB_NOT_FOUND` |
-| Electron → alterd | `shell.event.tabClosed` | 关闭即归档；关闭的是激活标签时激活下方相邻的，没有则上方 | `{tabId}`；错误 `E_TAB_NOT_FOUND` |
+| Electron → alterd | `shell.event.tabClosed` | 关闭即归档（固定标签只卸载）；关闭的是激活标签时激活下方相邻的，没有则上方；解散它所在的分屏 | `{tabId}`；错误 `E_TAB_NOT_FOUND` |
+| Electron → alterd | `shell.event.spaceCreated` / `spaceUpdated` / `spaceActivated` / `spaceDeleted` | Space 管理：新建（名称 1–32 字符，颜色为预设之一）并设为当前；只改给出的字段；切换；硬删（不能删最后一个，partition 目录在下次启动时删除） | `{name, color}` / `{spaceId, name?, color?}` / `{spaceId}` / `{spaceId}` |
+| Electron → alterd | `shell.event.tabPinned` / `tabMoved` | 固定 / 取消固定；移到目标分区第 `index` 位 | `{tabId, pinned}` / `{tabId, pinned, index}` |
+| Electron → alterd | `shell.event.cdpReady` | Chromium remote-debugging 端口就绪，alterd 据此连接 CdpMux | `{port}` |
+| Electron → alterd | `shell.event.ownershipReturned` / `userTookControl` | 用户点「交还给 Agent」/「停止 Agent」 | `{taskSpaceId}` |
+| Electron → alterd | `shell.event.searchRequested` | 命令栏输入变化 | `{requestId, query}` |
+| Electron → alterd | `shell.event.splitRequested` / `splitDissolved` | 同一 Space 的两个标签组成分屏（左边是 `tabIds[0]`）/ 解散 | `{tabIds:[a,b]}` / `{tabId}` |
+| Electron → alterd | `shell.event.tabRestored` | 恢复已归档标签到普通分区末尾并激活 | `{tabId}` |
+| Electron → alterd | `shell.event.importSourcesRequested` / `importRequested` | 导入向导：列出 profile / 开始导入（`profile` 是列表里的子目录名） | `{requestId}` / `{requestId, source, profile, spaceId, items}` |
 
 无法解析的行与未知 `type` 记 WARN 后丢弃，连接保持。
-
-规划中（由后续需求实现，届时再定字段）：Space 管理事件（add-space-management）；`shell.setLayout`（分屏）；agent 用的指定标签 / CDP target 对应与 `shell.setOverlay`（add-agent-gateway / add-agent-handoff）；`shell.event.userTookControl` / `ownershipReturned`；`shell.event.cdpReady`。
 
 CLI（`alter`，除 `status` 外的子命令读同一个 `gateway.json`；`ALTER_HOME` 覆盖数据目录以便测试）：
 
@@ -66,9 +76,9 @@ CLI（`alter`，除 `status` 外的子命令读同一个 `gateway.json`；`ALTER
 |---|---|---|
 | `alter nodejs [-e <code>]`（stdin heredoc 或 `-e`） | 用打包的 Bun 运行脚本，预置 `taskSpace`、`takeOverTaskSpace`、`claimTaskSpace`、`listTaskSpaces` 全局函数 | 脚本退出码；无法连接 2 |
 | `alter spaces list [--json]` | 列出 Space | 0 |
-| `alter import --from chrome\|arc [--profile <path>] --space <id> [--items bookmarks,history,cookies]` | 导入并等待完成，打印计数 | 0；部分成功 0 并打印警告；来源不存在 1 |
-| `alter status [--json]` | alterd 是否运行与版本（读 `alterd.json`，格式见下文「进程状态」）；端口与最近错误待网关需求补充 | 运行中 0，未运行或残留 1 |
-| `alter upgrade [--check]` | 从 GitHub Releases 下载并安装新版 DMG | 0；无更新 0；下载失败 1 |
+| `alter import --from chrome\|arc [--profile <path>] --space <id> [--items bookmarks,history]` | 导入并等待 `import.done`，stdout 打印 `imported bookmarks=<n> history=<n> cookies=<n> skipped=<n>`；省略 `--items` 为书签与历史；`--profile` 的相对路径按当前目录转成绝对路径 | 0；来源不存在或其他业务错误 1；连不上 Gateway 2 |
+| `alter status [--json]` | alterd 是否运行与版本（读 `alterd.json`，格式见下文「进程状态」）；Gateway 端口与最近错误尚未加入 | 运行中 0，未运行或残留 1 |
+| `alter upgrade [--check]`（待发布 change） | 从 GitHub Releases 下载并安装新版 DMG | 0；无更新 0；下载失败 1 |
 | `alter --version` | 版本 | 0 |
 
 进程状态（add-workspace-skeleton、fix-orphan-alterd 已实现，三个进程共用 `ALTER_HOME`，未设置时为 `~/Library/Application Support/alter`）：
@@ -77,9 +87,9 @@ CLI（`alter`，除 `status` 外的子命令读同一个 `gateway.json`；`ALTER
 - `alterd run [--exit-on-stdin-close]`：带上该参数时，stdin 读到 EOF 或读取出错就按 SIGTERM 的流程退出（删除 `alterd.json`，退出码 0，日志 `signal` 为 `stdin-eof` / `stdin-error`）；不带时 stdin 不影响运行。Electron Main 总是带上它，并以自己独占写端的管道作 alterd 的 stdin。
 - `alterd run` 退出码：0 正常退出（SIGTERM / SIGINT / stdin 关闭）；3 已有实例持有 `alterd.lock`；1 其他错误。stderr 只输出 tracing 的 JSON 行，退出码 1 与 3 的那条带 `code` 字段。
 - `alter status`：运行中输出 `alterd running (pid <n>, version <v>)`；无文件输出 `not running`；文件在但 pid 已死输出 `not running (stale)`。`--json` 为 `{"running": true, "pid": n, "version": "…", "dbPath": "…"}`、`{"running": false}` 或 `{"running": false, "stale": true}`。
-- Electron IPC（Main ↔ Renderer，经 preload 的 `window.alter`）：`shell.state`（Main 推送 / Renderer invoke，载荷 `{state: ShellState|null, nav: {canGoBack, canGoForward, url}, error?: {code, message}}`）、`shell.open`（`{input, newTab}`）、`tab.activate` / `tab.close`（`{tabId}`）、`nav.back` / `nav.forward` / `nav.reload`（`{}`），定义在 `apps/browser/src/shared/shell.ts`。通道 `daemon.status`，载荷 `{state: "starting"|"running"|"missing"|"exited", pid?, path?}`；alterd 以退出码 3 退出且 `alterd.json` 里的 pid 存活时，报 `running` 与该外部实例的 pid；Renderer 显示 `alterd 启动中 / 运行中 / 未找到 / 已退出`。
+- Electron IPC（Main ↔ Renderer，经 preload 的 `window.alter`）：`shell.state`（Main 推送 / Renderer invoke，载荷 `{state: ShellState|null, nav: {canGoBack, canGoForward, url}, error?: {code, message}}`）、`shell.open`（`{input, newTab}`）、`tab.activate` / `tab.close`（`{tabId}`）、`nav.back` / `nav.forward` / `nav.reload`（`{}`），定义在 `apps/browser/src/shared/shell.ts`。add-core-features 另加：`space.create` / `space.update` / `space.activate` / `space.delete`；`tab.pin` / `tab.move` / `tab.split` / `tab.unsplit` / `tab.restore`；`taskSpace.return` / `taskSpace.stop`（`{taskSpaceId}`）；`commandBar.open` / `commandBar.close` / `commandBar.search {requestId, query}` / `commandBar.results {requestId, items}`（Main → Renderer）/ `commandBar.execute {item}`；`peek.state {open, bounds?}`（Main → Renderer）/ `peek.close` / `peek.promote`；`address.focus {newTab}`（Main → Renderer）；`import.sources`（invoke）/ `import.start` / `import.progress`（Main → Renderer）。通道 `daemon.status`，载荷 `{state: "starting"|"running"|"missing"|"exited", pid?, path?}`；alterd 以退出码 3 退出且 `alterd.json` 里的 pid 存活时，报 `running` 与该外部实例的 pid；Renderer 显示 `alterd 启动中 / 运行中 / 未找到 / 已退出`。
 
-SDK（`packages/sdk`，Bun 内全局可用）：`taskSpace(name|id)`、`takeOverTaskSpace(id)`、`claimTaskSpace(id)`、`listTaskSpaces()`；TaskSpace 对象：`spaceId`、`name`、`ownership`、`page(label)`、`userPage()`、`pages()`、`tabs()`、`newPage()`、`adopt()`、`release()`、`handOff()`、`waitForControl()`、`finish({keep})`、`cdp()`；Page 对象一一对应上表 `page.*` 方法，外加 `mouse.*`、`keyboard.*`、`waitForEvent("popup"|"download")`、`waitForFileChooser()`。与 ego-browser 的 API 形状保持一致，方便 skill 迁移。
+SDK（`packages/sdk`，Bun 内全局可用）：`taskSpace(name|id)`、`takeOverTaskSpace(id)`、`claimTaskSpace(id)`、`listTaskSpaces()`；TaskSpace 对象：`spaceId`、`name`、`ownership`、`page(label)`、`userPage()`、`pages()`、`tabs()`、`newPage()`、`adopt()`、`release()`、`handOff()`、`waitForControl()`、`finish({keep})`、`cdp()`；Page 对象一一对应上表 `page.*` 方法，外加 `mouse.*`、`keyboard.*`、`waitForEvent("popup"|"download")`（`waitForFileChooser()` 推迟到后续 change）。与 ego-browser 的 API 形状保持一致，方便 skill 迁移。
 
 ## 事件 / 消息
 Gateway 用 JSON-RPC 通知（无 id）推送：
@@ -90,5 +100,5 @@ Gateway 用 JSON-RPC 通知（无 id）推送：
 | `page.dialog` | alterd | SDK | `{id, label, type, message}` |
 | `page.popup` | alterd | SDK | `{id, label, newLabel, targetId}` |
 | `page.download` | alterd | SDK | `{id, label, url, suggestedFilename, path}` |
-| `import.progress` / `import.done` | alterd | Renderer、CLI | `{importId, status, counts, warning?}` |
-| `app.updateAvailable` | alterd | Renderer、CLI（`[alter:notice]` 行） | `{version, url}` |
+| `import.progress` / `import.done` | alterd | 发起导入的连接（CLI 等）；向导经 Shell 的 `shell.importProgress` | `import.progress {importId, item, counts}`；`import.done {importId, status, counts, warning?}` |
+| `app.updateAvailable`（待发布 change） | alterd | Renderer、CLI（`[alter:notice]` 行） | `{version, url}` |

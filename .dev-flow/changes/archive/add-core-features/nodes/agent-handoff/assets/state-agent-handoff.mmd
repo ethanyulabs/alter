@@ -1,0 +1,8 @@
+stateDiagram-v2
+  [*] --> agent_active: taskSpace.create
+  agent_active --> user_active: handOff 或 userTookControl
+  user_active --> agent_active: ownershipReturned
+  user_active --> user_inactive: 超过 handoff 阈值
+  user_inactive --> agent_active: ownershipReturned
+  agent_active --> finished: taskSpace.finish
+  finished --> [*]

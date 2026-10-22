@@ -1,0 +1,31 @@
+flowchart LR
+  user([用户]):::frontend
+  sdk([alter-sdk 脚本]):::external
+  subgraph app [alter.app]
+    banner[HandoffBanner · 停止 Agent]:::frontend
+    main[Electron Main]:::frontend
+    page[页面内 alter-agent-overlay<br/>隔离 world shadow DOM]:::frontend
+  end
+  subgraph daemon [alterd]
+    gw[Gateway 事件推送]:::backend
+    tsm[TaskSpaceManager<br/>ownership 状态机 · 队列]:::backend
+    mux[CdpMux]:::backend
+    tabsvc[TabService]:::backend
+  end
+  sdk -->|handOff · takeOver · waitForControl| gw
+  gw -->|调用| tsm
+  tsm -->|ownership 落库| tabsvc
+  tabsvc -->|快照 taskSpaces.ownership| main
+  main -->|IPC| banner
+  user -->|交还给 Agent · 停止 Agent| banner
+  banner -->|IPC| main
+  main -->|ownershipReturned · userTookControl| tabsvc
+  tabsvc -->|ownership 变化通知| tsm
+  tsm -->|ownershipChanged 通知| gw
+  tsm -->|注入 / 更新 / 隐藏叠层| mux
+  mux -->|Runtime.evaluate 隔离 world| page
+  class banner,tsm,mux,page,gw changed
+  classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
+  classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b
+  classDef external fill:#f1f5f9,stroke:#64748b,color:#1e293b,stroke-dasharray:4 3
+  classDef changed stroke-width:3px,stroke:#dc2626

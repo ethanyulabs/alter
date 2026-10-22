@@ -1,0 +1,13 @@
+flowchart LR
+  N1[N1 space-tabs<br/>Space 管理与标签整理]:::frontend
+  N2[N2 agent-gateway<br/>网关 · CDP · SDK · alter nodejs]:::backend
+  N3[N3 agent-handoff<br/>叠层与接管交还]:::backend
+  N4[N4 browse-extras<br/>命令栏 · 分屏 · Peek · 自动归档]:::frontend
+  N5[N5 profile-import<br/>Chrome / Arc 导入]:::backend
+  N1 -->|表结构 · Space 事件 · 快捷键注册表| N2
+  N1 -->|表结构 · 固定标签 · 快捷键注册表| N4
+  N2 -->|分发器 · 命令队列 · CDP 会话| N3
+  N2 -->|分发器 · 通知推送| N5
+  N4 -->|命令栏结果来源 · history 规则| N5
+  classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
+  classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b

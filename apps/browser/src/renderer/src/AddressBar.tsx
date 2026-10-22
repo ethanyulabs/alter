@@ -1,5 +1,5 @@
 // 地址框与「新标签」按钮：点「新标签」后进入新标签模式，回车提交给主进程
-import { createEffect, createSignal, Show, type JSX } from "solid-js";
+import { createEffect, createSignal, onCleanup, onMount, Show, type JSX } from "solid-js";
 
 interface Props {
   /** 当前激活标签的 URL，地址框未编辑时显示它 */
@@ -24,6 +24,19 @@ export default function AddressBar(props: Props): JSX.Element {
     input.value = "";
     input.focus();
   };
+
+  // 快捷键 / 菜单：CmdOrCtrl+T 进入新标签模式，CmdOrCtrl+L 选中地址框里的文字
+  onMount(() => {
+    const off = window.alter.onAddressFocus(({ newTab: asNewTab }) => {
+      if (asNewTab) {
+        startNewTab();
+      } else {
+        input?.focus();
+        input?.select();
+      }
+    });
+    onCleanup(off);
+  });
 
   const submit = (e: KeyboardEvent) => {
     if (e.key !== "Enter") return;

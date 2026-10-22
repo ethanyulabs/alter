@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "e2e": "cargo build -q -p alterd && bun run build && playwright test -c e2e/playwright.config.ts"
+    "e2e": "cargo build -q -p alterd -p alter-cli && cargo build -q --release -p alterd && bun run build && playwright test -c e2e/playwright.config.ts"
   },
   "dependencies": {
     "@alter/protocol": "workspace:*",

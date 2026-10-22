@@ -1,0 +1,31 @@
+sequenceDiagram
+  autonumber
+  participant C as alter nodejs（Bun + SDK）
+  participant G as Gateway
+  participant T as TaskSpaceManager
+  participant B as TabService
+  participant M as Electron Main
+  participant X as CdpMux
+  participant R as Chromium
+  M->>R: 启动参数 --remote-debugging-port=0
+  M->>B: shell.event.cdpReady {port}
+  B->>X: 连接 ws://127.0.0.1:port/devtools/browser
+  C->>G: hello {clientVersion, protocolVersion: 1}
+  G-->>C: {protocolVersion, pageBudget, spaces}
+  C->>G: taskSpace.create {name}
+  G->>T: 创建（ownership=agent）
+  T->>B: 插入标签 about:blank（不改激活）
+  G-->>C: {id, spaceId, pages:[p1]}（写库、发布快照后即返回）
+  B-->>M: 快照：标签带 taskSpaceId、label=p1
+  M->>R: 新建离屏 WebContentsView 并加载（异步）
+  M->>B: tabUpdated {tabId, targetId}（getOrCreateDevToolsTargetId）
+  C->>G: page.goto {id, label: p1, url}
+  G->>T: 入该 TaskSpace 的队列
+  T->>X: 首次用这个页面：等 targetId（最多 5 秒），Target.attachToTarget {flatten:true}
+  T->>X: Page.navigate，等 load 事件
+  X->>R: CDP
+  alt 超过 timeoutMs
+    T-->>C: E_TIMEOUT
+  else 成功
+    T-->>C: receipt {ok, durationMs, popups}
+  end
