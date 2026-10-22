@@ -5,3 +5,4 @@
 | 2026-10-20 | [add-workspace-skeleton](add-workspace-skeleton/requirement.md) | feature | 工程骨架：双工作区、核心存储与三进程启动 | storage, protocol, alterd-lifecycle, cli, app-shell |
 | 2026-10-20 | [fix-orphan-alterd](fix-orphan-alterd/requirement.md) | fix | app 异常结束后 alterd 残留，重启显示「已退出」 | alterd-lifecycle, app-shell |
 | 2026-10-20 | [add-spaces-sidebar](add-spaces-sidebar/requirement.md) | feature | 浏览器基础 UI：Shell Control 与侧边栏标签 | shell-control, spaces, tabs, app-shell, protocol |
+| 2026-10-21 | [main-stdio-epipe](main-stdio-epipe/requirement.md) | fix | stdout/stderr 断开后主进程写日志不再报错 | app-shell |

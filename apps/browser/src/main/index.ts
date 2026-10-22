@@ -17,7 +17,11 @@ import {
 } from "../shared/shell";
 import { alterHome, DaemonSupervisor } from "./daemon";
 import { ShellLink } from "./shell-link";
+import { guardStdio } from "./stdio";
 import { TabViews } from "./tab-views";
+
+// 最先执行：stdout / stderr 的读端关闭后，写日志与进程警告都不能变成未捕获异常
+guardStdio();
 
 // Chromium 的用户数据（各 Space 的 partition、缓存）放在 ALTER_HOME 下，必须在 ready 之前设置
 app.setPath("userData", join(alterHome(), "chromium"));
