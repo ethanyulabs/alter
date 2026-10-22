@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import type { DaemonStatus } from "../shared/daemon";
+import { forwardToStderr } from "./stdio";
 
 /** 数据目录：ALTER_HOME，未设置时为 ~/Library/Application Support/alter（与 alter-core 一致）。 */
 export function alterHome(): string {
@@ -73,13 +74,14 @@ export class DaemonSupervisor {
       return;
     }
     const home = alterHome();
-    // stderr 用管道转发而不是继承：alterd 不能持有主进程自己的 stdio，否则会拖住主进程的退出。
+    // stderr 用管道接过来再转发，而不是继承：alterd 不能持有主进程自己的 stdio，否则会拖住主进程的退出。
+    // 转发要一直读下去，主进程的 stderr 断开了也不停（见 forwardToStderr），否则 alterd 写满管道就卡住。
     // stdin 是一根只由本进程持有写端的管道：主进程结束（包括被 SIGKILL）时内核关闭写端，
     // alterd 读到 EOF 后自行退出。运行期间不要对 child.stdin 调用 end()。
     const child = spawn(path, ["run", "--exit-on-stdin-close"], {
       stdio: ["pipe", "ignore", "pipe"],
     });
-    child.stderr?.pipe(process.stderr);
+    if (child.stderr) forwardToStderr(child.stderr);
     this.child = child;
     this.setStatus({ state: "starting", path });
     // 文件存在但无法执行（权限等）时 spawn 以 error 事件报告，不能让它变成主进程的未捕获异常

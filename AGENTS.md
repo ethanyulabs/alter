@@ -94,6 +94,7 @@ alter/
 - Electron 端到端在 `apps/browser/e2e/`（Playwright `_electron.launch`），用例标题以场景 ID 开头；覆盖主窗口、alterd 托管、侧边栏与标签。页面用 `e2e/fixtures/server.ts` 的本地 HTTP 服务器，不访问外网；内容区 URL 在主进程里读（`webContents.getAllWebContents()`、窗口挂载的 `WebContentsView`），不依赖 `app.windows()`；用例失败时 `dumpLogsOnFailure` 打印 app 主进程与 alterd 的输出。已存档需求的用例保留各自的场景 ID，`--grep` 可能同时选中新旧同名 ID。
 - 评审与验证交给 codex 时，它的沙箱启动不了 Electron（SIGABRT），也不允许监听 Unix socket（alterd 的 lifecycle / shell 测试会以 `Operation not permitted` 失败）：`bun run e2e` 与 `cargo test` 都由主会话在本机跑，把结果贴进验证报告并注明运行环境。
 - 写完 e2e 或契约测试后，至少想一个能让它误判为通过的错误实现，并用变异确认测试会失败；计时类成功标准从被测系统自己留下的时间点（如 `alterd.json` 的 mtime）起算，只允许高估。
+- 主进程可能被未捕获异常的原生弹窗卡住的 e2e（stdio、异常路径）：每次 `app.evaluate` 都限时，`finally` 里 `app.close()` 限时、关不掉就 SIGKILL，不留孤儿 app；用 `stream.destroy()` 关闭 app 的管道读端后要等 `close` 事件再写；直接写 `process.stdout` 与经 `console.*` 写要分开测（Node 的 Console 会给没有监听器的流补空 `error` 监听，顺带兜住同一时刻其他写入的错误）。
 - CLI 用 `assert_cmd` 跑真实二进制，`ALTER_HOME` 指向临时目录。
 - alterd 退出路径（信号、stdin 关闭）的测试要覆盖宿主已死、stdin / stderr 管道都已断开的情况：此时写日志会失败，清理不能因此中断。只靠 e2e 才测得出的问题，codex 的沙箱跑不到。
 - `scripts/install.sh` 过 `shellcheck`，并用 `--dry-run` 断言步骤。

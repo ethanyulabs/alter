@@ -61,3 +61,15 @@ Electron 壳：窗口、托管 alterd、给 Renderer 的 IPC。
 #### Scenario: 刷新
 - WHEN 激活标签显示本地测试页 `/count`（服务器记录它被请求的次数，当前为 1），用户点击刷新
 - THEN 2 秒内服务器记录的 `/count` 请求次数为 2
+
+### Requirement: stdout / stderr 断开时照常运行
+系统 SHALL 在 app 主进程的 stdout / stderr 管道读端关闭后照常运行：主进程写日志或发出进程警告不产生未捕获异常，并继续读走 alterd 写到 stderr 的日志。
+
+#### Scenario: 写日志不产生未捕获异常
+- WHEN app 已启动且窗口显示 `alterd 运行中`，关闭 app 的 stdout 与 stderr 管道的读端，之后主进程执行 `console.log`、`console.error` 并发出一条进程警告（`process.emitWarning`）
+- THEN 1 秒内主进程没有未捕获异常（`uncaughtExceptionMonitor` 没有记录）
+- AND 主进程在 2 秒内响应一次 `app.evaluate`
+
+#### Scenario: 继续读走 alterd 的 stderr
+- WHEN `ALTER_ALTERD_PATH` 指向一个假 alterd，app 显示 `alterd 运行中` 后关闭 app 的 stderr 管道的读端，假 alterd 随后向 stderr 写出 256 KB
+- THEN 从让它开始写起 3 秒内写完（它在写完后建出标记文件）
