@@ -1,0 +1,18 @@
+erDiagram
+  spaces ||--o{ tabs : "space_id"
+  spaces ||--o{ history : "space_id"
+  tabs {
+    text id PK
+    text space_id FK
+    text split_group "同组两个标签，NULL 单页"
+    integer last_active_at "归档判断依据"
+    integer archived_at "关闭或自动归档"
+  }
+  history {
+    integer id PK
+    text space_id FK
+    text url
+    text title "标题回写按该标签最近一次导航的历史行 id 更新"
+    integer visited_at
+    text source "alter"
+  }

@@ -1,0 +1,34 @@
+flowchart LR
+  user([用户]):::frontend
+  agent([alter import]):::external
+  subgraph app [alter.app]
+    wizard[ImportWizard]:::frontend
+    main[Electron Main]:::frontend
+  end
+  subgraph daemon [alterd]
+    gw[Gateway import.*]:::backend
+    shell[ShellServer]:::backend
+    svc[ImportService]:::backend
+    tabsvc[TabService]:::backend
+    store[(SQLite bookmarks · history · imports)]:::data
+  end
+  src[[Chrome / Arc profile]]:::external
+  tmp[(临时副本)]:::data
+  user -->|选择来源 · Space · 类别| wizard
+  wizard -->|IPC import.*| main
+  main -->|importRequested · importSourcesRequested| shell
+  shell -->|importProgress · importSources| main
+  agent -->|import.run · import.status| gw
+  gw -->|启动任务| svc
+  shell -->|启动任务| svc
+  svc -->|拷贝后只读| src
+  src -->|Bookmarks · History| tmp
+  svc -->|读取| tmp
+  svc -->|书签 · 历史 · imports 行| tabsvc
+  tabsvc -->|写| store
+  class wizard,main,gw,shell,svc,tabsvc changed
+  classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
+  classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b
+  classDef data fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef external fill:#f1f5f9,stroke:#64748b,color:#1e293b,stroke-dasharray:4 3
+  classDef changed stroke-width:3px,stroke:#dc2626

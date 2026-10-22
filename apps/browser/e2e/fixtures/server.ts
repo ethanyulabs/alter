@@ -25,6 +25,39 @@ const SPECIAL: Record<string, { type: string; body: string | Buffer }> = {
     type: "text/html; charset=utf-8",
     body: `<!doctype html><title>Blob Opener</title><p>blob</p>`,
   },
+  "/form": {
+    type: "text/html; charset=utf-8",
+    body: `<!doctype html><title>Form</title>
+<form id="f"><label>Email <input name="email"></label> <button type="submit">Submit</button></form>
+<script>
+  document.getElementById("f").addEventListener("submit", (e) => {
+    e.preventDefault();
+    document.body.innerText = "submitted: " + e.target.email.value;
+  });
+</script>`,
+  },
+  // 父级 SC3：2000 个元素的页面
+  "/big": {
+    type: "text/html; charset=utf-8",
+    body: `<!doctype html><title>Big</title><ul>${Array.from({ length: 1000 }, (_, i) => `<li><button>b${i}</button></li>`).join("")}</ul>`,
+  },
+  // load 要等 5 秒的图片（/delay），DOMContentLoaded 立即触发
+  "/slow-image": {
+    type: "text/html; charset=utf-8",
+    body: `<!doctype html><title>Slow</title><img src="/delay">`,
+  },
+  "/links": {
+    type: "text/html; charset=utf-8",
+    body: `<!doctype html><title>Links</title><a target="_blank" href="/b">Open B</a>`,
+  },
+  "/alert": {
+    type: "text/html; charset=utf-8",
+    body: `<!doctype html><title>Alert</title><body>alert page<script>alert("hi")</script></body>`,
+  },
+  "/two-buttons": {
+    type: "text/html; charset=utf-8",
+    body: `<!doctype html><title>Two Buttons</title><button>Go</button> <button>Go</button>`,
+  },
   "/popup": {
     type: "text/html; charset=utf-8",
     body: `<!doctype html><title>Popup</title><a id="pop" target="_blank" href="/b">pop</a>`,
@@ -55,6 +88,43 @@ export async function startServer(): Promise<TestServer> {
   const server: Server = createServer((req, res) => {
     const path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
     hits.set(path, (hits.get(path) ?? 0) + 1);
+    // N1：Cookie 隔离用的两个页面
+    if (path === "/set-cookie") {
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        "set-cookie": "k=v; Path=/",
+      });
+      res.end(`<!doctype html><title>Set Cookie</title><body>set</body>`);
+      return;
+    }
+    // N2：5 秒后才响应（导航超时）
+    if (path === "/download") {
+      res.writeHead(200, {
+        "content-type": "text/plain; charset=utf-8",
+        "content-disposition": 'attachment; filename="report.txt"',
+      });
+      res.end("report body\n");
+      return;
+    }
+    if (path === "/delay") {
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+        res.end(`<!doctype html><title>Delay</title><body>late</body>`);
+      }, 5_000);
+      return;
+    }
+    // N1 CR5：可被 HTTP 缓存的页面
+    if (path === "/cached") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=3600" });
+      res.end(`<!doctype html><title>Cached</title><body>${"x".repeat(4096)}</body>`);
+      return;
+    }
+    if (path === "/echo-cookie") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      res.end(`<!doctype html><title>Echo Cookie</title><body>cookie: ${req.headers.cookie ?? ""}</body>`);
+      return;
+    }
     const special = SPECIAL[path];
     if (special) {
       res.writeHead(200, { "content-type": special.type, "cache-control": "no-store" });

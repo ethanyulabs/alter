@@ -1,0 +1,30 @@
+flowchart LR
+  user([用户]):::frontend
+  subgraph app [alter.app]
+    cmd[CommandBar]:::frontend
+    side[Sidebar 已归档 · 分屏菜单]:::frontend
+    main[Electron Main<br/>TabViews 分屏布局 · Peek 视图]:::frontend
+    peek[Peek WebContentsView<br/>同一 partition，不入库]:::frontend
+  end
+  subgraph daemon [alterd]
+    tabsvc[TabService<br/>search · split · restore · history]:::backend
+    archiver[Archiver 定时器]:::backend
+    store[(SQLite tabs · history)]:::data
+  end
+  user -->|Cmd+T · 输入| cmd
+  cmd -->|IPC commandBar.search| main
+  main -->|searchRequested| tabsvc
+  tabsvc -->|searchResults 只回请求方| main
+  user -->|右键分屏 · 恢复| side
+  side -->|IPC| main
+  main -->|splitRequested · splitDissolved · tabRestored| tabsvc
+  tabsvc -->|快照 splitGroup · archived| main
+  main -->|Shift+点击 new-window| peek
+  peek -->|在新标签打开 openRequested| tabsvc
+  archiver -->|归档过期标签| tabsvc
+  tabsvc -->|tabUpdated 时写历史| store
+  class cmd,side,main,peek,tabsvc,archiver changed
+  classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
+  classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b
+  classDef data fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef changed stroke-width:3px,stroke:#dc2626

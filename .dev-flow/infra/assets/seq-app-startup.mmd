@@ -21,7 +21,8 @@ sequenceDiagram
         M-->>R: daemon.status exited
       end
     else 取到锁
-      D->>H: Store::open, alter.db 迁移到 version 1
+      D->>H: Store::open, alter.db 迁移到最新（0002, 迁移前备份 alter.db.bak-1）<br/>收尾中断的导入, 删除已删除 Space 的 partition 目录
+      D->>H: 写 gateway.json (0600)
       D->>H: 覆盖写 alterd.json (version, pid, startedAt, dbPath)
       loop 每 100 ms, 直到看见健康文件或子进程退出
         M->>H: 读取 alterd.json

@@ -7,4 +7,24 @@ export type TabView = { id: string, spaceId: string, url: string, title: string,
 /**
  * 是否为所在 Space 的激活标签（每个 Space 至多一个）
  */
-active: boolean, };
+active: boolean, 
+/**
+ * 是否在固定分区；同一 Space 内固定标签总排在普通标签之前
+ */
+pinned: boolean, 
+/**
+ * 固定标签被「关闭」后页面已卸载，用户再次激活前不应加载（只在 alterd 运行期间记住）
+ */
+discarded: boolean, 
+/**
+ * 托管它的 TaskSpace；用户标签为空
+ */
+taskSpaceId?: number, 
+/**
+ * 在该 TaskSpace 里的 Page 标签（`p1`、`p2`…）
+ */
+label?: string, 
+/**
+ * 分屏组：同组的两个标签值相同，值是左边那个标签的 id；不在分屏里为 null
+ */
+splitGroup: string | null, };

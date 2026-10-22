@@ -6,3 +6,4 @@
 | 2026-10-20 | [fix-orphan-alterd](fix-orphan-alterd/requirement.md) | fix | app 异常结束后 alterd 残留，重启显示「已退出」 | alterd-lifecycle, app-shell |
 | 2026-10-20 | [add-spaces-sidebar](add-spaces-sidebar/requirement.md) | feature | 浏览器基础 UI：Shell Control 与侧边栏标签 | shell-control, spaces, tabs, app-shell, protocol |
 | 2026-10-21 | [main-stdio-epipe](main-stdio-epipe/requirement.md) | fix | stdout/stderr 断开后主进程写日志不再报错 | app-shell |
+| 2026-10-22 | [add-core-features](add-core-features/requirement.md) | feature | alter 核心功能：Space、agent、浏览增强与导入 | spaces, tabs, app-shell, storage, alterd-lifecycle, protocol, gateway, task-space, page-api, sdk, cli, agent-overlay, history, command-bar, peek, import, import-wizard |

@@ -1,0 +1,40 @@
+flowchart LR
+  agent([Agent]):::external
+  pw([Playwright]):::external
+  subgraph cli_box [alter CLI]
+    nodejs[alter nodejs]:::backend
+    spaces[alter spaces list]:::backend
+  end
+  bun[Bun + @alter/sdk runtime]:::backend
+  subgraph daemon [alterd]
+    gw[Gateway<br/>/rpc WS JSON-RPC]:::backend
+    fwd[CDP 转发<br/>cdpPort]:::backend
+    tsm[TaskSpaceManager<br/>每个 TaskSpace 一个队列]:::backend
+    mux[CdpMux<br/>自写最小 CDP 客户端]:::backend
+    tabsvc[TabService]:::backend
+    store[(SQLite)]:::data
+  end
+  subgraph app [alter.app]
+    main[Electron Main<br/>TabViews 离屏 agent 视图]:::frontend
+    chromium[Chromium<br/>--remote-debugging-port=0]:::frontend
+  end
+  agent -->|heredoc / -e| nodejs
+  nodejs -->|spawn，--preload runtime| bun
+  bun -->|Bearer token，JSON-RPC| gw
+  spaces -->|space.list| gw
+  gw -->|taskSpace.* page.*| tsm
+  tsm -->|建 / 关 / 托管标签| tabsvc
+  tabsvc -->|读写| store
+  tabsvc -->|快照带 taskSpaceId · label| main
+  main -->|shell.event.cdpReady 端口| tabsvc
+  tsm -->|按标签取会话| mux
+  mux -->|ws CDP，flatten session| chromium
+  pw -->|Bearer token| fwd
+  fwd -->|透明转发| chromium
+  main -->|WebContentsView| chromium
+  class gw,fwd,tsm,mux,nodejs,spaces,bun,main changed
+  classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
+  classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b
+  classDef data fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef external fill:#f1f5f9,stroke:#64748b,color:#1e293b,stroke-dasharray:4 3
+  classDef changed stroke-width:3px,stroke:#dc2626

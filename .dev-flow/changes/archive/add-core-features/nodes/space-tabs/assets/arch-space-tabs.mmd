@@ -1,0 +1,31 @@
+flowchart LR
+  user([用户]):::frontend
+  subgraph app [alter.app]
+    spacebar[SpaceBar · SpacePanel · ConfirmDialog]:::frontend
+    sidebar[Sidebar 固定分区 · 拖拽]:::frontend
+    menu[Menu 应用菜单]:::frontend
+    views[TabViews]:::frontend
+    sess[Electron session<br/>persist:space-id]:::frontend
+  end
+  subgraph daemon [alterd]
+    tabsvc[TabService]:::backend
+    sweep[启动时清理 Partitions]:::backend
+    store[(SQLite 迁移 0002)]:::data
+  end
+  disk[(ALTER_HOME/chromium/Partitions)]:::data
+  user -->|点击 · 拖拽| spacebar
+  user -->|快捷键| menu
+  spacebar -->|IPC space.*| views
+  sidebar -->|IPC tab.pin · tab.move| views
+  menu -->|调用同一组处理函数| views
+  views -->|shell.event.space* · tabPinned · tabMoved| tabsvc
+  tabsvc -->|stateChanged · discard| views
+  views -->|Space 消失时 clearStorageData · clearCache| sess
+  tabsvc -->|读写| store
+  sweep -->|删除孤儿 space-* 目录| disk
+  sweep -->|读现存 Space| store
+  class spacebar,sidebar,menu,views,tabsvc,sweep,store changed
+  classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
+  classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b
+  classDef data fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef changed stroke-width:3px,stroke:#dc2626

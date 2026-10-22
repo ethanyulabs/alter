@@ -34,6 +34,9 @@
     },
     "packages/sdk": {
       "name": "@alter/sdk",
+      "dependencies": {
+        "@alter/protocol": "workspace:*",
+      },
     },
   },
   "packages": {

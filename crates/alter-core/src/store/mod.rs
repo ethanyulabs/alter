@@ -1,15 +1,22 @@
 //! SQLite 存储：打开数据目录下的 `alter.db` 并应用迁移。
 
+mod bookmarks;
+mod history;
+mod imports;
 mod migrate;
 mod spaces;
 mod tabs;
+mod task_spaces;
 
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
-pub use spaces::SpaceRow;
-pub use tabs::TabRow;
+pub use bookmarks::ImportedBookmark;
+pub use imports::ImportRow;
+pub use spaces::{SpaceDeletion, SpaceRow};
+pub use tabs::{ArchivedRow, TabClosing, TabRow};
+pub use task_spaces::{PageRow, TaskSpaceRow};
 
 /// 打开或迁移数据库时的错误。
 #[derive(Debug, thiserror::Error)]
@@ -34,11 +41,13 @@ impl Store {
     /// 打开 `home` 下的 `alter.db`，不存在则创建，并应用全部未应用的迁移。
     pub fn open(home: &Path) -> Result<Store, StoreError> {
         std::fs::create_dir_all(home)?;
-        let mut conn = Connection::open(db_path(home))?;
+        let db = db_path(home);
+        let mut conn = Connection::open(&db)?;
         // 两者都必须在迁移事务之外设置：WAL 不能在事务内切换，外键开关是每个连接各自的
         conn.pragma_update(None, "journal_mode", "WAL")?;
         conn.pragma_update(None, "foreign_keys", true)?;
-        migrate::apply(&mut conn)?;
+        history::register_functions(&conn)?;
+        migrate::apply(&mut conn, &db)?;
         Ok(Store { conn })
     }
 

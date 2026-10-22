@@ -1,0 +1,32 @@
+erDiagram
+  spaces ||--o{ bookmarks : "space_id"
+  spaces ||--o{ history : "space_id"
+  spaces ||--o{ imports : "space_id"
+  bookmarks ||--o{ bookmarks : "parent_id"
+  bookmarks {
+    text id PK
+    text space_id FK
+    text parent_id FK "NULL 为根"
+    text title
+    text url "文件夹为 NULL"
+    integer position
+    text source "chrome|arc"
+  }
+  history {
+    integer id PK
+    text space_id FK
+    text url
+    integer visited_at "Chrome 时间换算为 UTC 毫秒"
+    text source "chrome|arc"
+  }
+  imports {
+    integer id PK
+    text space_id FK
+    text source
+    text profile_path
+    text status "running|done|partial|failed"
+    integer bookmarks_count
+    integer history_count
+    integer cookies_count
+    text error "keychain_denied 等"
+  }

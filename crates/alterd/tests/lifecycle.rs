@@ -87,9 +87,9 @@ fn now_millis() -> i64 {
         .as_millis() as i64
 }
 
-/// R3.S1 启动后写出健康文件：1 秒内出现 alterd.json，字段正确，库已迁移。
+/// N1 R15.S1 启动后写出健康文件：1 秒内出现 alterd.json，字段正确，库已迁移到版本 2。
 #[test]
-fn r3_s1_run_writes_health_file() {
+fn n1_r15_s1_run_writes_health_file() {
     let home = tempfile::tempdir().unwrap();
     let before = now_millis();
 
@@ -118,7 +118,7 @@ fn r3_s1_run_writes_health_file() {
     let version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 1);
+    assert_eq!(version, 2);
     assert!(daemon.is_running());
 }
 

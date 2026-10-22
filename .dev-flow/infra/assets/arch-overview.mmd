@@ -11,14 +11,15 @@ flowchart LR
   subgraph daemon [alterd（Rust 守护进程）]
     gateway[Gateway<br/>WS JSON-RPC + token]:::backend
     tsm[TaskSpaceManager]:::backend
-    cdpmux[CdpMux<br/>chromiumoxide]:::backend
+    cdpmux[CdpMux<br/>自写 CDP 客户端]:::backend
+    forward[CDP 转发端点<br/>token · TCP 透明代理]:::backend
     shelllink[ShellLink]:::backend
     importer[ImportService]:::backend
     store[(SQLite<br/>rusqlite, WAL)]:::data
   end
   chrome[[Chrome / Arc 本地数据]]:::external
-  keychain[[macOS Keychain]]:::security
-  gh[[GitHub Releases]]:::external
+  keychain[[macOS Keychain<br/>（Cookie 导入，后续 change）]]:::security
+  gh[[GitHub Releases<br/>（发布，后续 change）]]:::external
   user -->|点击 / 快捷键| renderer
   renderer -->|IPC| main
   main -->|创建 / 挂载 WebContentsView<br/>partition=persist:space-id| chromium
@@ -30,14 +31,15 @@ flowchart LR
   gateway -->|导入| importer
   tsm -->|CDP 会话| cdpmux
   tsm -->|建 / 关标签, 叠层| shelllink
-  tsm -->|读写| store
-  importer -->|写入| store
-  agent -.->|Playwright connectOverCDP| cdpmux
+  tsm -->|经 TabService 读写| store
+  importer -->|经 TabService 批量写入| store
+  agent -.->|Playwright connectOverCDP| forward
+  forward -->|鉴权后转发| chromium
   cdpmux -->|remote-debugging 端口| chromium
   shelllink -->|Unix socket, JSON 行| main
-  importer -->|读取 Bookmarks / History / Cookies| chrome
-  importer -->|Chrome Safe Storage 密钥| keychain
-  cli -->|alter upgrade 下载 DMG| gh
+  importer -->|读取 Bookmarks / History| chrome
+  importer -.->|Safe Storage 密钥（后续）| keychain
+  cli -.->|alter upgrade（后续）| gh
   classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
   classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b
   classDef data fill:#ede9fe,stroke:#7c3aed,color:#3b0764

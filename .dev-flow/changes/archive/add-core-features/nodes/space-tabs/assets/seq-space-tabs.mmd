@@ -1,0 +1,21 @@
+sequenceDiagram
+  autonumber
+  participant U as 用户
+  participant R as Renderer
+  participant M as Electron Main
+  participant D as alterd TabService
+  participant S as Store
+  U->>R: 右键 Work 圆点 → 删除 → 确认
+  R->>M: IPC space.delete {spaceId}
+  M->>D: shell.event.spaceDeleted {spaceId}
+  alt 只剩一个 Space
+    D-->>M: shell.error E_INVALID_ARGUMENT
+    M-->>R: 地址框下显示错误（UI 里最后一个 Space 的「删除」按钮本就置灰）
+  else 可以删除
+    D->>S: 事务：选出相邻 Space 并更新其 last_active_at，DELETE FROM spaces（级联删除标签）
+    D-->>M: shell.stateChanged（Work 已不在 spaces 中）
+    M->>M: 销毁 Work 的全部 WebContentsView
+    M->>M: session.fromPartition(persist:space-Work).clearStorageData() 与 clearCache()
+    M-->>R: 新的 ShellView，底部只剩其他圆点
+  end
+  Note over D: 下次 alterd 启动时，先删除 Partitions 下的孤儿 space-* 目录，再写 alterd.json

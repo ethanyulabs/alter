@@ -12,7 +12,7 @@
 - WHEN `ALTER_HOME` 指向一个空的临时目录，启动 `alterd run`
 - THEN 1 秒内出现 `<ALTER_HOME>/alterd.json`
 - AND 文件是 JSON，`pid` 等于该进程的 pid，`version` 为 `0.1.0`，`dbPath` 为 `<ALTER_HOME>/alter.db`，`startedAt` 是毫秒级 Unix 时间戳整数
-- AND `<ALTER_HOME>/alter.db` 存在，且 `SELECT MAX(version) FROM schema_version` 返回 1
+- AND `<ALTER_HOME>/alter.db` 存在，且 `SELECT MAX(version) FROM schema_version` 返回 2
 
 #### Scenario: SIGTERM 后清理退出
 - WHEN 一个已写出健康文件的 `alterd run` 收到 SIGTERM

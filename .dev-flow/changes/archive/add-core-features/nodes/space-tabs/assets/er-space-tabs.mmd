@@ -1,0 +1,19 @@
+erDiagram
+  spaces ||--o{ tabs : "space_id，ON DELETE CASCADE"
+  spaces {
+    text id PK
+    text name "1-32 字符"
+    text color "8 个预设之一"
+    integer position "创建顺序"
+    integer last_active_at "0002 新增，最大者为当前 Space"
+  }
+  tabs {
+    text id PK
+    text space_id FK
+    text url
+    integer pinned "0/1"
+    text pinned_url "0002 新增，固定时的 URL"
+    integer position "同 Space 内 0..n-1，固定在前"
+    integer last_active_at
+    integer archived_at
+  }

@@ -1,0 +1,49 @@
+erDiagram
+  spaces ||--o{ tabs : "space_id"
+  spaces ||--o{ history : "space_id"
+  spaces ||--o{ bookmarks : "space_id"
+  spaces ||--o{ task_spaces : "space_id"
+  task_spaces ||--o{ task_pages : "task_space_id"
+  tabs |o--o| task_pages : "tab_id"
+  spaces {
+    text id PK
+    text name
+    text color
+    integer position
+    integer last_active_at "0002 新增；最大者为当前 Space"
+  }
+  tabs {
+    text id PK
+    text space_id FK
+    text url
+    integer pinned
+    text pinned_url "0002 新增；固定时的 URL"
+    integer position "同 Space 内连续编号，固定标签在前"
+    text split_group
+    integer archived_at
+  }
+  history {
+    integer id PK
+    text space_id FK
+    text url
+    integer visited_at
+    text source
+  }
+  bookmarks {
+    text id PK
+    text space_id FK
+    text title
+    text url
+  }
+  task_spaces {
+    integer id PK
+    text space_id FK
+    text ownership
+    text status
+  }
+  task_pages {
+    integer id PK
+    integer task_space_id FK
+    text label
+    text tab_id FK
+  }

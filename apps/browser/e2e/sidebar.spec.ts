@@ -9,6 +9,7 @@ import { expect, test, type ElectronApplication, type Page } from "@playwright/t
 
 import { dumpLogsOnFailure, launchApp, tempHome, waitUntil } from "./app";
 import { startServer, type TestServer } from "./fixtures/server";
+import { expectAllWithin, now, uiState } from "./ui";
 
 /** 主进程里全部 webContents 的 URL（含侧边栏页面本身）。 */
 async function contentUrls(app: ElectronApplication): Promise<string[]> {
@@ -134,7 +135,7 @@ test("R9.S1 点击切换：点 Page A 后内容区显示 /a，Page A 为激活�
   }
 });
 
-test("R10.S2 关闭最后一个标签：列表为空，内容区显示没有打开的标签", async () => {
+test("N1 R9.S2 关闭最后一个标签：列表为空，内容区显示没有打开的标签", async () => {
   const app = await launchApp();
   try {
     const win = await app.firstWindow();
@@ -143,10 +144,13 @@ test("R10.S2 关闭最后一个标签：列表为空，内容区显示没有打�
     await expect(win.getByTestId("tab-row")).toHaveText("Page A", { timeout: 2_000 });
 
     await win.getByTestId("tab-row").hover();
+    const t0 = now();
     await win.getByTestId("tab-close").click();
 
-    await expect(win.getByTestId("tab-row")).toHaveCount(0, { timeout: 1_000 });
-    await expect(win.getByTestId("empty-content")).toHaveText("没有打开的标签", { timeout: 1_000 });
+    await expectAllWithin(t0, 1_000, "R9.S2", async () => {
+      const s = await uiState(win);
+      return (s.rows.length === 0 && s.empty === "没有打开的标签") || JSON.stringify(s);
+    });
     expect(await attachedUrls(app)).toEqual([]);
   } finally {
     await app.close();
@@ -356,6 +360,8 @@ test("CR7 错误提示：激活标签已在别处被关闭时，在当前标签�
     await ready(win);
     await openNewTab(win, server.input("/a"));
     await expect(win.getByTestId("tab-row")).toHaveText("Page A", { timeout: 2_000 });
+    // 等页面的回写都到齐（标题之后 favicon 也会回写）：否则迟到的 tabUpdated 在归档后被拒绝，提前出现同样的提示
+    await expect(win.getByTestId("tab-favicon")).toBeVisible({ timeout: 2_000 });
 
     // 直接在库里归档这个标签：alterd 不会因此广播，Main 仍以为它是激活标签
     const db = new DatabaseSync(join(home, "alter.db"));
@@ -433,3 +439,33 @@ async function waitUntilAsync(timeoutMs: number, cond: () => Promise<boolean>): 
   }
   return cond();
 }
+
+test("N1 CR11 连发成功与被拒绝的操作：错误提示不被随后到达的快照清掉，1 秒后仍显示", async () => {
+  const app = await launchApp();
+  try {
+    const win = await app.firstWindow();
+    await ready(win);
+    await openNewTab(win, server.input("/a"));
+    await expect(win.getByTestId("tab-row")).toHaveText("Page A", { timeout: 2_000 });
+
+    await win.evaluate(async () => {
+      const alter = (window as unknown as {
+        alter: {
+          getShellView(): Promise<{ state: { tabs: { id: string }[] } }>;
+          activateTab(id: string): void;
+          closeTab(id: string): void;
+        };
+      }).alter;
+      const id = (await alter.getShellView()).state.tabs[0]!.id;
+      // 第一个成功（会广播快照），第二个被拒绝（只回错误）
+      alter.activateTab(id);
+      alter.closeTab("01JZZZZZZZZZZZZZZZZZZZZZZZ");
+    });
+
+    await expect(win.getByTestId("shell-error")).toBeVisible({ timeout: 1_000 });
+    await win.waitForTimeout(1_000);
+    await expect(win.getByTestId("shell-error")).toBeVisible();
+  } finally {
+    await app.close();
+  }
+});

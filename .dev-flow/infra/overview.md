@@ -3,24 +3,24 @@
 <!-- 基础文档：每个需求都以它为起点的系统级背景。每份文档保持简短、与现状一致。需求让它们过时时，由存档步骤更新。 -->
 
 ## 用途
-alter 是一个 macOS 浏览器，给人和 AI agent 共用。对人，它提供 Arc 风格的交互：侧边栏标签、彼此隔离的 Space、固定标签、命令栏、分屏、自动归档和 Peek 预览，并能从 Chrome / Arc 导入书签、历史和 Cookie。对 agent，它提供 `alter` CLI 和 `alter nodejs` 脚本运行时（仿 ego-browser 的 TaskSpace / Page API），agent 在用户已登录的 Space 里完成任务，用户随时可以接管，再交还给 agent。热路径（agent 网关、CDP 多路复用、存储、导入）由 Rust 守护进程 `alterd` 承担，Electron 只负责窗口与 UI，脚本运行时用 Bun，目标是低延迟。
+alter 是一个 macOS 浏览器，给人和 AI agent 共用。对人，它提供 Arc 风格的交互：侧边栏标签、彼此隔离的 Space、固定标签、命令栏、分屏、自动归档和 Peek 预览，并能从 Chrome / Arc 导入书签和历史（Cookie 导入在后续 change）。对 agent，它提供 `alter` CLI 和 `alter nodejs` 脚本运行时（仿 ego-browser 的 TaskSpace / Page API），agent 在用户已登录的 Space 里完成任务，用户随时可以接管，再交还给 agent。热路径（agent 网关、CDP 多路复用、存储、导入）由 Rust 守护进程 `alterd` 承担，Electron 只负责窗口与 UI，脚本运行时用 Bun，目标是低延迟。
 
-现状：工程骨架（三进程启动、健康文件、`alter status`）与浏览器基础 UI（Shell Control Channel、默认 Space、侧边栏标签、地址输入、导航按钮、重启恢复）已实现；Space 管理、Gateway、CDP、agent 相关能力仍是**目标架构**，由后续需求逐个实现（见 architecture.md 的架构决策表）。
+现状：工程骨架、浏览器基础 UI，以及 add-core-features 交付的核心功能已实现——多个隔离的 Space、固定标签与拖拽、快捷键；Gateway、CDP 多路复用与转发、`alter nodejs` 与 SDK 的 TaskSpace / Page API；agent 叠层与接管交还；命令栏、浏览历史、分屏、Peek、自动归档；从 Chrome / Arc 导入书签与历史（向导与 `alter import`）。尚未实现、由后续 change 落地的：Cookie 导入（Keychain 解密），以及 agent skill、主页、DMG 打包、安装脚本与 `alter upgrade`（发布）。
 
 ## 仓库
 | 仓库 | 路径 | 角色 | 技术栈 | 测试命令 |
 |---|---|---|---|---|
-| alter | . | 单仓多包：Rust 核心（alterd、CLI、core）、Electron 壳、SDK、协议类型、agent skill、主页、安装脚本 | Rust（tokio、chromiumoxide、rusqlite）、TypeScript（Bun、SolidJS、Vite、Electron）、SQLite | `cargo test && bun test`（全部门禁 `bun run ci:check`） |
+| alter | . | 单仓多包：Rust 核心（alterd、CLI、core）、Electron 壳、SDK、协议类型、agent skill、主页、安装脚本 | Rust（tokio 单线程运行时、tokio-tungstenite、自写 CDP 客户端、rusqlite）、TypeScript（Bun、SolidJS、Vite、Electron）、SQLite | `cargo test && bun test`（全部门禁 `bun run ci:check`） |
 
 ## 术语表
 | 术语 | 含义 |
 |---|---|
 | Space | 用户侧的工作区：一组标签、书签、历史，以及独立的 Chromium partition（Cookie / storage 互相隔离）。对应 Arc 的 Space。 |
 | Partition | Chromium 的会话分区，命名 `persist:space-<spaceId>`，一个 Space 一个，由 Electron 创建 WebContentsView 时指定；数据目录为 `ALTER_HOME/chromium/Partitions/space-<id 小写>`。 |
-| Tab | Space 内的一个页面，侧边栏里一行；对应一个 WebContentsView（首次激活时才创建）和 Chromium target；关闭即归档（`tabs.archived_at`）。 |
+| Tab | Space 内的一个页面，侧边栏里一行；对应一个 WebContentsView（首次激活时才创建；agent 托管的标签总有离屏视图）和 Chromium target；关闭即归档（`tabs.archived_at`），固定标签关闭只卸载页面。 |
 | Pinned Tab | 固定标签：常驻侧边栏顶部，不参与自动归档。 |
 | Split View | 分屏：同一 `split_group` 的标签在窗口内并排显示。 |
-| Peek | 悬停侧边栏链接时的浮层预览，不切换当前标签。 |
+| Peek | Shift+点击页面里的链接时打开的浮层预览（内容区的 80%），Esc 或点浮层外关闭，可「在新标签打开」；不切换当前标签，不存库。 |
 | 自动归档 | 非固定标签超过不活跃阈值后移出侧边栏（`tabs.archived_at`），可在归档列表恢复。 |
 | alterd | Rust 守护进程，随 alter.app 启动，唯一写 SQLite、唯一发 CDP 的进程。 |
 | ALTER_HOME | 数据目录，默认 `~/Library/Application Support/alter`，环境变量覆盖；测试一律指向临时目录。 |

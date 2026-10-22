@@ -16,5 +16,13 @@
 
 #### Scenario: 导出 Shell Control 消息类型
 - WHEN 执行 `cargo run -p alter-core --bin export-ts -- <空的临时目录>`
-- THEN 目录中存在 `ShellCommand.ts`，其 `type` 字段的字符串字面量恰好为 `shell.stateChanged`、`shell.navigate`、`shell.error`
-- AND 目录中存在 `ShellEvent.ts`，其 `type` 字段的字符串字面量恰好为 `shell.event.openRequested`、`shell.event.tabUpdated`、`shell.event.tabActivated`、`shell.event.tabClosed`
+- THEN 目录中存在 `ShellCommand.ts`，其 `type` 字段的字符串字面量恰好为 `shell.stateChanged`、`shell.navigate`、`shell.error`、`shell.discard`、`shell.searchResults`、`shell.importSources`、`shell.importProgress`
+- AND 目录中存在 `ShellEvent.ts`，其 `type` 字段的字符串字面量恰好为 `shell.event.openRequested`、`shell.event.tabUpdated`、`shell.event.tabActivated`、`shell.event.tabClosed`、`shell.event.spaceCreated`、`shell.event.spaceUpdated`、`shell.event.spaceActivated`、`shell.event.spaceDeleted`、`shell.event.tabPinned`、`shell.event.tabMoved`、`shell.event.cdpReady`、`shell.event.ownershipReturned`、`shell.event.userTookControl`、`shell.event.searchRequested`、`shell.event.splitRequested`、`shell.event.splitDissolved`、`shell.event.tabRestored`、`shell.event.importSourcesRequested`、`shell.event.importRequested`
+- AND 目录中存在 `TabView.ts`，其字段包含 `pinned`、`taskSpaceId`、`label`、`splitGroup`
+
+#### Scenario: 导出 Gateway 类型
+- WHEN 执行 `cargo run -p alter-core --bin export-ts -- <空的临时目录>`
+- THEN 目录中存在 `GatewayFile.ts`，其字段恰好为 `port`、`token`、`cdpPort`、`version`
+- AND 目录中存在 `Receipt.ts`，其字段包含 `ok`、`durationMs`、`popups`
+- AND 目录中存在 `OwnershipChanged.ts`，其字段恰好为 `id`、`ownership`、`reason`
+- AND 目录中存在 `ImportCounts.ts`，其字段恰好为 `bookmarks`、`history`、`cookies`、`skipped`
