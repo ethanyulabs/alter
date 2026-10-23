@@ -53,3 +53,20 @@ alterd 对 SDK 与 CLI 暴露的本机 WebSocket JSON-RPC 接口。
 #### Scenario: 列出两个 Space
 - WHEN alterd 有 Space `Personal`（2 个标签）与 `Work`（0 个标签），客户端调用 `space.list`
 - THEN `result.spaces` 依次为 `{name:"Personal", tabCount:2}`、`{name:"Work", tabCount:0}`（另含 `id`、`color`）
+
+### Requirement: 更新提示通知
+系统 SHALL 在 `config.toml` 没有设置 `update_check = false` 时，于 alterd 启动后与之后每 24 小时从 Release API 取一次最新版本；比自身新时，向当时已连接与之后连接的每个 Gateway 客户端各推送一次 `app.updateAvailable {version, url}`。检查失败时只记 warn 日志。
+
+#### Scenario: 启动后推送新版本
+- WHEN 假 Release 服务器的 latest 为 `{"tag_name":"v9.0.0","html_url":"https://example.invalid/r/v9.0.0"}`，以 `ALTER_RELEASE_API=<假服务器>`、`ALTER_UPDATE_CHECK_DELAY_MS=0` 启动 alterd，Gateway 客户端连接并完成鉴权
+- THEN 该客户端 3 秒内收到 `{"method":"app.updateAvailable","params":{"version":"9.0.0","url":"https://example.invalid/r/v9.0.0"}}`
+- AND 之后再连接的客户端在鉴权后也收到同样的一条
+
+#### Scenario: 已是最新或关闭检查时不推送
+- WHEN latest 为 alterd 自身版本，或 `config.toml` 中有 `update_check = false`（此时 latest 为 `v9.0.0`），以同样的环境启动 alterd 并连接 Gateway
+- THEN 5 秒内客户端没有收到 `app.updateAvailable`
+- AND `update_check = false` 时假 Release 服务器没有收到任何请求
+
+#### Scenario: 检查失败
+- WHEN `ALTER_RELEASE_API` 指向一个没有监听的本地端口，`ALTER_UPDATE_CHECK_DELAY_MS=0`，启动 alterd
+- THEN alterd 的 stderr 3 秒内有一行 `level` 为 `WARN`、消息包含 `检查更新失败` 的 JSON 日志，alterd 仍在运行

@@ -7,3 +7,4 @@
 | 2026-10-20 | [add-spaces-sidebar](add-spaces-sidebar/requirement.md) | feature | 浏览器基础 UI：Shell Control 与侧边栏标签 | shell-control, spaces, tabs, app-shell, protocol |
 | 2026-10-21 | [main-stdio-epipe](main-stdio-epipe/requirement.md) | fix | stdout/stderr 断开后主进程写日志不再报错 | app-shell |
 | 2026-10-22 | [add-core-features](add-core-features/requirement.md) | feature | alter 核心功能：Space、agent、浏览增强与导入 | spaces, tabs, app-shell, storage, alterd-lifecycle, protocol, gateway, task-space, page-api, sdk, cli, agent-overlay, history, command-bar, peek, import, import-wizard |
+| 2026-10-23 | [add-release-and-cookies](add-release-and-cookies/requirement.md) | feature | 补齐：Cookie 导入、发布安装、主页与 agent skill | import, shell-control, import-wizard, cli, protocol, release, install, gateway, sdk, app-shell, site, agent-skill |

@@ -3,6 +3,7 @@ import type { ArchivedTab } from "./ArchivedTab";
 import type { SpaceView } from "./SpaceView";
 import type { TabView } from "./TabView";
 import type { TaskSpaceView } from "./TaskSpaceView";
+import type { UpdateAvailable } from "./UpdateAvailable";
 
 /**
  * 全量状态快照：Space 按 position 升序；标签先按所属 Space 的顺序、再按 position 升序（固定在前）。
@@ -16,4 +17,8 @@ taskSpaces: Array<TaskSpaceView>,
 /**
  * 每个 Space 最近归档的至多 50 个标签，按归档时间降序
  */
-archived: Array<ArchivedTab>, };
+archived: Array<ArchivedTab>, 
+/**
+ * alterd 检查到的新版本；没有时不出现这个字段
+ */
+updateAvailable?: UpdateAvailable, };

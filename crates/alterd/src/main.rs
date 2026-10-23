@@ -9,6 +9,7 @@ mod partitions;
 mod shell;
 mod tabs;
 mod takeover;
+mod update;
 
 use std::process::ExitCode;
 

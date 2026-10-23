@@ -112,10 +112,10 @@ fn type_literals(src: &str) -> BTreeSet<String> {
     out
 }
 
-/// N5 R12.S2（承接 N4 R12.S2、N3 R9.S2、N2 R23.S2、N1 R16.S2）导出 Shell Control 消息类型：7 种命令、19 种事件，
-/// TabView 带 pinned、taskSpaceId、label、splitGroup。
+/// RC N1 R9.S2（承接 add-core-features N5 R12.S2）导出 Shell Control 消息类型：8 种命令、20 种事件，
+/// TabView 带 pinned、taskSpaceId、label、splitGroup，ImportedCookie 字段恰好为 Electron `cookies.set` 的那 9 个。
 #[test]
-fn n5_r12_s2_export_shell_messages() {
+fn rc_n1_r9_s2_export_shell_messages() {
     let out = tempfile::tempdir().unwrap();
     let status = Command::new(env!("CARGO_BIN_EXE_export-ts"))
         .arg(out.path())
@@ -135,6 +135,7 @@ fn n5_r12_s2_export_shell_messages() {
             "shell.searchResults",
             "shell.importSources",
             "shell.importProgress",
+            "shell.importCookies",
         ]),
         "ShellCommand.ts 内容：{command}"
     );
@@ -161,6 +162,7 @@ fn n5_r12_s2_export_shell_messages() {
             "shell.event.tabRestored",
             "shell.event.importSourcesRequested",
             "shell.event.importRequested",
+            "shell.event.cookiesImported",
         ]),
         "ShellEvent.ts 内容：{event}"
     );
@@ -168,6 +170,34 @@ fn n5_r12_s2_export_shell_messages() {
     for field in ["pinned: boolean", "taskSpaceId", "label", "splitGroup"] {
         assert!(tab.contains(field), "TabView.ts 缺 {field}：{tab}");
     }
+    let cookie = read(out.path(), "ImportedCookie.ts");
+    assert_eq!(
+        object_fields(&cookie),
+        expected(&[
+            "url",
+            "name",
+            "value",
+            "domain",
+            "path",
+            "secure",
+            "httpOnly",
+            "sameSite",
+            "expirationDate",
+        ]),
+        "ImportedCookie.ts 内容：{cookie}"
+    );
+    let same_site = read(out.path(), "SameSite.ts");
+    let literals: BTreeSet<String> = same_site
+        .split('"')
+        .skip(1)
+        .step_by(2)
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(
+        literals,
+        expected(&["unspecified", "no_restriction", "lax", "strict"]),
+        "SameSite.ts 内容：{same_site}"
+    );
 }
 
 /// 对象类型声明里的字段名集合。
@@ -252,5 +282,28 @@ fn n1_export_space_colors() {
         [
             "#6366f1", "#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#ec4899"
         ]
+    );
+}
+
+/// RC N2 R15.S1 导出更新提示类型：UpdateAvailable 字段恰好为 version、url，ShellState 含 updateAvailable。
+#[test]
+fn rc_n2_r15_s1_export_update_available() {
+    let out = tempfile::tempdir().unwrap();
+    let status = Command::new(env!("CARGO_BIN_EXE_export-ts"))
+        .arg(out.path())
+        .status()
+        .expect("export-ts 应当能启动");
+    assert_eq!(status.code(), Some(0));
+    let expected = |xs: &[&str]| xs.iter().map(|s| (*s).to_owned()).collect::<BTreeSet<_>>();
+    let update = read(out.path(), "UpdateAvailable.ts");
+    assert_eq!(
+        object_fields(&update),
+        expected(&["version", "url"]),
+        "UpdateAvailable.ts 内容：{update}"
+    );
+    let state = read(out.path(), "ShellState.ts");
+    assert!(
+        object_fields(&state).contains("updateAvailable"),
+        "ShellState.ts 内容：{state}"
     );
 }

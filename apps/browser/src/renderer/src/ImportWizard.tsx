@@ -10,11 +10,11 @@ interface Props {
   onClose: () => void;
 }
 
-const ITEMS: { value: ImportItem; label: string; disabled?: boolean }[] = [
+const ITEMS: { value: ImportItem; label: string; note?: string }[] = [
   { value: "bookmarks", label: "书签" },
   { value: "history", label: "历史" },
-  // Cookie 的导入不在本需求（移到后续 change），先不让选
-  { value: "cookies", label: "Cookie（暂不支持）", disabled: true },
+  // 解密 Cookie 要从钥匙串取来源浏览器的 Safe Storage 口令，macOS 会弹授权框
+  { value: "cookies", label: "Cookie", note: "macOS 会请求钥匙串授权" },
 ];
 
 const STATUS_TEXT: Record<ImportProgressView["status"], string> = {
@@ -22,6 +22,12 @@ const STATUS_TEXT: Record<ImportProgressView["status"], string> = {
   done: "导入完成",
   partial: "部分完成",
   failed: "导入失败",
+};
+
+/** 部分完成的原因（alterd 的 `warning`）→ 给用户看的说明；没有列出的原样显示。 */
+const WARNING_TEXT: Record<string, string> = {
+  keychain_denied: "未获得钥匙串授权，Cookie 未导入",
+  shell_unavailable: "浏览器窗口未就绪，Cookie 未导入",
 };
 
 /** 每次「开始导入」一个新的 requestId：只认这次导入的进度。 */
@@ -32,7 +38,7 @@ export default function ImportWizard(props: Props): JSX.Element {
   const [source, setSource] = createSignal<ImportSource>("chrome");
   const [profile, setProfile] = createSignal("");
   const [spaceId, setSpaceId] = createSignal(props.state?.activeSpaceId ?? "");
-  const [items, setItems] = createSignal<ImportItem[]>(["bookmarks", "history"]);
+  const [items, setItems] = createSignal<ImportItem[]>(["bookmarks", "history", "cookies"]);
   const [requestId, setRequestId] = createSignal<number | undefined>();
   const [progress, setProgress] = createSignal<ImportProgressView | undefined>();
 
@@ -133,10 +139,13 @@ export default function ImportWizard(props: Props): JSX.Element {
                 data-testid="import-item"
                 value={item.value}
                 checked={items().includes(item.value)}
-                disabled={item.disabled || requestId() !== undefined}
+                disabled={requestId() !== undefined}
                 onChange={(e) => toggle(item.value, e.currentTarget.checked)}
               />
               {item.label}
+              <Show when={item.note}>
+                <span class="hint">{item.note}</span>
+              </Show>
             </label>
           )}
         </For>
@@ -165,7 +174,7 @@ export default function ImportWizard(props: Props): JSX.Element {
                   <p class="error">{p().error}</p>
                 </Show>
                 <Show when={p().warning}>
-                  <p class="hint">{p().warning}</p>
+                  {(w) => <p class="hint">{WARNING_TEXT[w()] ?? w()}</p>}
                 </Show>
               </>
             )}

@@ -114,3 +114,53 @@ fn n2_v7_unreachable_gateway_exits_2() {
     assert!(!text(&out.stdout).contains("ran"), "{}", show(&out));
     assert!(text(&out.stderr).contains("alter.app"), "{}", show(&out));
 }
+
+/// RC N2 R8.S1 经符号链接运行 alter nodejs：按链接解析后的真实路径找到同目录的 bun 与 ../sdk/runtime.js。
+#[test]
+fn rc_n2_r8_s1_runs_through_symlink() {
+    let home = tempfile::tempdir().unwrap();
+    let _d = common::Daemon::start(home.path());
+    let p = tempfile::tempdir().unwrap();
+    let q = tempfile::tempdir().unwrap();
+    let bin = p.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::copy(env!("CARGO_BIN_EXE_alter"), bin.join("alter")).unwrap();
+    std::os::unix::fs::symlink(bun_path(), bin.join("bun")).unwrap();
+    // 打包后的运行时；开头加一个标记，确认用的是它而不是仓库里的开发版
+    let sdk = p.path().join("sdk");
+    std::fs::create_dir_all(&sdk).unwrap();
+    let runtime = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../packages/sdk/src/runtime.ts"
+    );
+    let built = std::process::Command::new(bun_path())
+        .args(["build", runtime, "--target", "bun", "--outfile"])
+        .arg(sdk.join("runtime.js"))
+        .output()
+        .unwrap();
+    assert!(built.status.success(), "bun build 失败：{}", show(&built));
+    let js = std::fs::read_to_string(sdk.join("runtime.js")).unwrap();
+    std::fs::write(
+        sdk.join("runtime.js"),
+        format!("console.error(\"[packaged-runtime]\");\n{js}"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(bin.join("alter"), q.path().join("alter")).unwrap();
+
+    let out = Command::new(q.path().join("alter"))
+        .args(["nodejs", "-e", "console.log(typeof taskSpace)"])
+        .env("ALTER_HOME", home.path())
+        .env("PATH", "/usr/bin:/bin")
+        .env_remove("ALTER_BUN_PATH")
+        .env_remove("ALTER_SDK_RUNTIME")
+        .timeout(std::time::Duration::from_secs(30))
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", show(&out));
+    assert_eq!(text(&out.stdout), "function\n", "{}", show(&out));
+    assert!(
+        text(&out.stderr).contains("[packaged-runtime]"),
+        "应当用 <exe 目录>/../sdk/runtime.js：{}",
+        show(&out)
+    );
+}

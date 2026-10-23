@@ -28,6 +28,13 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["json"] }
 ts-rs = { version = "12.0.1", features = ["serde-compat"] }
 ulid = "3.0.0"
+# Cookie 导入：钥匙串取 Safe Storage 口令，PBKDF2 + AES-128-CBC 解密
+security-framework = "3.7.0"
+pbkdf2 = "0.13.0"
+sha1 = "0.11.0"
+sha2 = "0.11.1"
+aes = "0.9.3"
+cbc = { version = "0.2.1", features = ["alloc"] }
 # 仅测试使用
 assert_cmd = "2.2.2"
 tempfile = "3.27.0"

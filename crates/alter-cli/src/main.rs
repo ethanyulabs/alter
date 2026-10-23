@@ -1,10 +1,13 @@
 //! alter：给用户与 agent 用的命令行。
 
+mod exe;
 mod gateway;
 mod import;
 mod nodejs;
+mod skill;
 mod spaces;
 mod status;
+mod upgrade;
 
 use std::process::ExitCode;
 
@@ -31,7 +34,7 @@ enum Command {
         #[arg(short = 'e', long = "eval")]
         code: Option<String>,
     },
-    /// 从 Chrome / Arc 导入书签、历史（Cookie 暂不支持）到某个 Space
+    /// 从 Chrome / Arc 导入书签、历史与 Cookie 到某个 Space（Cookie 要从钥匙串取口令，macOS 会请求授权）
     Import {
         /// 来源浏览器
         #[arg(long, value_enum)]
@@ -42,7 +45,7 @@ enum Command {
         /// 目标 Space 的 id（见 `alter spaces list`）
         #[arg(long)]
         space: String,
-        /// 要导入的类别，逗号分隔；省略时为 bookmarks,history
+        /// 要导入的类别（bookmarks、history、cookies），逗号分隔；省略时为 bookmarks,history
         #[arg(long, value_enum, value_delimiter = ',')]
         items: Option<Vec<Item>>,
     },
@@ -50,6 +53,39 @@ enum Command {
     Spaces {
         #[command(subcommand)]
         command: SpacesCommand,
+    },
+    /// 升级到 GitHub 上的最新版本（经 install.sh）
+    Upgrade {
+        /// 只检查并打印比较结果，不升级
+        #[arg(long)]
+        check: bool,
+        /// 与 --check 一起用：以单行 JSON 输出
+        #[arg(long, requires = "check")]
+        json: bool,
+        /// 升级到指定版本（如 v0.2.0）
+        #[arg(long)]
+        version: Option<String>,
+    },
+    /// 安装或移除给 AI agent 用的 alter-browser skill
+    Skill {
+        #[command(subcommand)]
+        command: SkillCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum SkillCommand {
+    /// 把 alter-browser 复制到 agent 的 skills 目录（默认 ~/.claude/skills 与 ~/.codex/skills 中已存在的）
+    Install {
+        /// 目标 skills 目录，可重复
+        #[arg(long)]
+        target: Vec<std::path::PathBuf>,
+    },
+    /// 删除 alter 装进去的 alter-browser（只删带 .alter-skill 标记的）
+    Uninstall {
+        /// 目标 skills 目录，可重复
+        #[arg(long)]
+        target: Vec<std::path::PathBuf>,
     },
 }
 
@@ -112,5 +148,16 @@ fn main() -> ExitCode {
         Command::Spaces {
             command: SpacesCommand::List { json },
         } => spaces::list(&alter_core::paths::alter_home(), json),
+        Command::Upgrade {
+            check,
+            json,
+            version,
+        } => upgrade::run(check, json, version),
+        Command::Skill {
+            command: SkillCommand::Install { target },
+        } => skill::install(target),
+        Command::Skill {
+            command: SkillCommand::Uninstall { target },
+        } => skill::uninstall(target),
     }
 }

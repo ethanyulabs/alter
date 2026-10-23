@@ -1,0 +1,36 @@
+flowchart LR
+  user([用户]):::frontend
+  cli([alter import]):::external
+  subgraph app [alter.app]
+    wizard[ImportWizard]:::frontend
+    main[Electron Main<br/>cookie-import.ts]:::frontend
+    part[(partition<br/>persist:space-id)]:::data
+  end
+  subgraph daemon [alterd]
+    gw[Gateway import.*]:::backend
+    shell[ShellServer]:::backend
+    svc[ImportService<br/>import/cookies.rs]:::backend
+    kc[keychain.rs]:::security
+  end
+  src[(源 profile<br/>Cookies 副本)]:::data
+  keychain[[macOS Keychain]]:::security
+  user -->|勾选 Cookie| wizard
+  wizard -->|IPC import:start| main
+  main -->|shell.event.importRequested| shell
+  cli -->|import.run items cookies| gw
+  gw --> svc
+  shell --> svc
+  svc -->|SQLite backup 读| src
+  svc -->|取口令| kc
+  kc -->|SecItem 查询 授权弹窗| keychain
+  svc -->|shell.importCookies| shell
+  shell -->|下发给 cdpReady 连接| main
+  main -->|cookies.set| part
+  main -->|shell.event.cookiesImported| shell
+  class svc,kc,main,wizard changed
+  classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
+  classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b
+  classDef data fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef external fill:#f1f5f9,stroke:#64748b,color:#1e293b,stroke-dasharray:4 3
+  classDef security fill:#ffe4e6,stroke:#e11d48,color:#881337
+  classDef changed stroke-width:3px,stroke:#dc2626

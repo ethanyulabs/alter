@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>alter — 你和 AI agent 共用的浏览器</title>
+  <meta name="description" content="alter 是一个给人和 AI agent 共用的 macOS 浏览器：彼此隔离的 Space、侧边栏，以及让 agent 在你已登录的 Space 里干活的脚本运行时，你随时可以接管。">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <a class="brand" href="./"><img src="../favicon.svg" alt="">alter</a>
+      <nav>
+        <a href="https://github.com/ethanyulabs/alter">GitHub</a>
+        <a href="https://github.com/ethanyulabs/alter/releases/latest">下载</a>
+        <a href="../" hreflang="en">English</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <h1>你和 AI agent 共用的浏览器。</h1>
+      <p>alter 是一个 macOS 浏览器，有 Arc 风格的 Space 和竖排的侧边栏。agent 通过 <code>alter</code> 命令行和脚本运行时操作它，就在你已经登录的 Space 里干活；你随时可以接管，做完再交还给它。</p>
+    </section>
+
+    <section id="install">
+      <h2>安装</h2>
+      <p>在终端运行下面这条命令。它会下载最新版本、校验 SHA256，把 <code>alter.app</code> 装进 <code>/Applications</code>（不可写时装进 <code>~/Applications</code>），并把命令行链接到 <code>~/.local/bin/alter</code>。</p>
+      <div class="install">
+        <code id="install-command">curl -fsSL https://github.com/ethanyulabs/alter/releases/latest/download/install.sh | bash</code>
+        <button type="button" data-copy="install-command">复制</button>
+      </div>
+      <p class="note">目前只支持 Apple Silicon 的 Mac（M1 及更新），系统需要 macOS 13 或更新。之后用 <code>alter upgrade</code> 升级。</p>
+      <p class="note">想用磁盘镜像？可以从<a href="https://github.com/ethanyulabs/alter/releases/latest">最新版本</a>下载 DMG。app 没有经过公证，第一次打开时 macOS 可能会拦下它：到 系统设置 → 隐私与安全性 → 仍要打开。用上面的命令安装不会遇到这个问题。</p>
+    </section>
+
+    <section id="features">
+      <h2>功能</h2>
+      <div class="grid">
+        <div class="card"><h3>Space</h3><p>每个 Space 有自己的 Cookie 和存储，工作和个人的登录状态互不影响，在侧边栏底部切换。</p></div>
+        <div class="card"><h3>侧边栏标签</h3><p>竖排标签、固定标签、拖拽排序，不活跃的标签自动归档。</p></div>
+        <div class="card"><h3>命令栏</h3><p>按 ⌘T，一个输入框完成打开网址、搜索、跳到标签、Space、书签或历史。</p></div>
+        <div class="card"><h3>分屏与 Peek</h3><p>两个标签并排看；按住 Shift 点链接，不离开当前页就能预览。</p></div>
+        <div class="card"><h3>从 Chrome / Arc 导入</h3><p>把书签、最近的历史和 Cookie 导入某个 Space，网站不用重新登录。</p></div>
+        <div class="card"><h3>更新</h3><p>有新版本时 alter 会提示你，<code>alter upgrade</code> 一条命令装好。</p></div>
+      </div>
+    </section>
+
+    <section id="agents">
+      <h2>给 AI agent</h2>
+      <p>agent 用 <code>alter nodejs</code> 运行脚本，通过 TaskSpace / Page API 打开页面、读快照、点击、填表、截图、下载文件。页面上会显示 agent 的光标和动作；遇到登录或验证码时，它把控制权交给你，等你交还后再继续。</p>
+<pre><code>alter nodejs &lt;&lt;'EOF'
+const ts = await taskSpace("demo");
+const page = ts.page("p1");
+await page.goto("https://example.com");
+console.log(await page.title());
+await ts.finish();
+EOF</code></pre>
+      <p>把随 app 附带的 skill 装进 Claude Code 或 Codex，agent 就知道怎么用 alter：</p>
+      <pre><code>alter skill install</code></pre>
+      <p class="note">它会把 <code>alter-browser</code> 复制到 <code>~/.claude/skills</code> 和 <code>~/.codex/skills</code>（只装到已存在的目录）；其他 agent 用 <code>--target &lt;dir&gt;</code> 指定目录。Playwright 也可以通过 <code>connectOverCDP</code> 直接连上来。</p>
+    </section>
+
+    <section id="faq">
+      <h2>常见问题</h2>
+      <details><summary>支持 Intel 的 Mac 吗？</summary><p>暂时不支持，发布的版本只针对 Apple Silicon。</p></details>
+      <details><summary>macOS 提示无法打开 app。</summary><p>在浏览器里下载 DMG 时会这样。打开 系统设置 → 隐私与安全性，点「仍要打开」；或者用上面的命令重新安装。</p></details>
+      <details><summary>怎么卸载？</summary><p>删除 <code>/Applications</code>（或 <code>~/Applications</code>）里的 <code>alter.app</code> 和 <code>~/.local/bin/alter</code>；装过 skill 的话先运行 <code>alter skill uninstall</code>。数据在 <code>~/Library/Application Support/alter</code>。</p></details>
+    </section>
+
+    <footer>
+      <p>alter 以 MIT 许可证开源 · <a href="https://github.com/ethanyulabs/alter">github.com/ethanyulabs/alter</a> · <a href="../" hreflang="en">English</a></p>
+    </footer>
+  </div>
+  <script>
+    // 复制安装命令：只用页面内的这一小段脚本，不加载外部资源
+    for (const button of document.querySelectorAll("[data-copy]")) {
+      button.addEventListener("click", async () => {
+        const text = document.getElementById(button.dataset.copy).textContent;
+        try {
+          await navigator.clipboard.writeText(text);
+          button.textContent = "已复制";
+          setTimeout(() => (button.textContent = "复制"), 1500);
+        } catch {
+          button.textContent = "请手动选中复制";
+        }
+      });
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,158 @@
+/* alter 主页：两页（英文、中文）共用。只用系统字体，不加载外部资源。 */
+:root {
+  --bg: #fafafa;
+  --fg: #18181b;
+  --muted: #52525b;
+  --card: #ffffff;
+  --line: #e4e4e7;
+  --accent: #4f46e5;
+  --code-bg: #f4f4f5;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0b0f;
+    --fg: #f4f4f5;
+    --muted: #a1a1aa;
+    --card: #141419;
+    --line: #27272a;
+    --accent: #818cf8;
+    --code-bg: #1c1c22;
+    color-scheme: dark;
+  }
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+}
+.wrap {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+header.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 0;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--fg);
+  text-decoration: none;
+}
+.brand img {
+  width: 28px;
+  height: 28px;
+}
+nav a {
+  color: var(--muted);
+  text-decoration: none;
+  margin-left: 16px;
+}
+nav a:hover {
+  color: var(--fg);
+}
+.hero {
+  padding: 48px 0 32px;
+}
+.hero h1 {
+  font-size: clamp(32px, 6vw, 48px);
+  line-height: 1.15;
+  margin: 0 0 16px;
+}
+.hero p {
+  color: var(--muted);
+  font-size: 18px;
+  max-width: 640px;
+  margin: 0;
+}
+section {
+  padding: 24px 0;
+}
+h2 {
+  font-size: 24px;
+  margin: 0 0 12px;
+}
+.install {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin: 16px 0 8px;
+}
+.install code,
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.install code {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.install button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  padding: 0 16px;
+  font: inherit;
+  cursor: pointer;
+}
+pre {
+  padding: 12px 14px;
+  overflow-x: auto;
+}
+.note {
+  color: var(--muted);
+  font-size: 14px;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 16px;
+}
+.card h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+}
+.card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+}
+details {
+  border-bottom: 1px solid var(--line);
+  padding: 12px 0;
+}
+summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+a {
+  color: var(--accent);
+}
+footer {
+  padding: 32px 0 48px;
+  color: var(--muted);
+  font-size: 14px;
+}

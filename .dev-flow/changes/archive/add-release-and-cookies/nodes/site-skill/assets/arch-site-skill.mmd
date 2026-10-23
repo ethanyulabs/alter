@@ -1,0 +1,26 @@
+flowchart LR
+  visitor([访客]):::frontend
+  agent([AI agent]):::external
+  subgraph repo [alter 仓库]
+    site[site/<br/>index.html · zh/index.html · style.css]:::frontend
+    skill[skills/alter-browser<br/>SKILL.md · references/]:::data
+    sdk[packages/sdk<br/>Page · TaskSpace · runtime.ts]:::backend
+    test[packages/sdk/tests<br/>distribution.test.ts]:::backend
+  end
+  pages[[GitHub Pages]]:::external
+  bundle[alter.app<br/>Resources/skills]:::backend
+  agentdir[(~/.claude/skills<br/>~/.codex/skills)]:::data
+  site -->|pages.yml 推送 main 时发布| pages
+  visitor -->|浏览| pages
+  skill -->|electron-builder extraResources| bundle
+  bundle -->|alter skill install| agentdir
+  agent -->|读取| agentdir
+  test -->|对照公开 API| sdk
+  test -->|解析标题与链接| skill
+  test -->|解析命令与引用| site
+  class site,skill,test changed
+  classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
+  classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b
+  classDef data fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef external fill:#f1f5f9,stroke:#64748b,color:#1e293b,stroke-dasharray:4 3
+  classDef changed stroke-width:3px,stroke:#dc2626

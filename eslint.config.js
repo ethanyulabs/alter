@@ -9,6 +9,8 @@ export default tseslint.config(
       "**/out/**",
       "**/dist/**",
       "target/**",
+      // scripts/dist.sh 的中间产物（打包好的 SDK 运行时等）
+      "build/**",
       "packages/protocol/src/generated/**",
     ],
   },

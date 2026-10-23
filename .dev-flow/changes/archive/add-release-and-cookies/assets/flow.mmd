@@ -1,0 +1,8 @@
+flowchart LR
+  N1[N1 cookie-import<br/>Cookie 导入]:::backend
+  N2[N2 release-install<br/>DMG · Release · install.sh · upgrade · 更新提示]:::backend
+  N3[N3 site-skill<br/>主页 · agent skill · README]:::frontend
+  N1 -->|Shell 往返指令的写法 · 提示文案样式| N2
+  N2 -->|install 命令 · 包内 skill 路径 · alter skill install| N3
+  classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
+  classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b

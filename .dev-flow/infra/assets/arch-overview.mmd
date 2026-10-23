@@ -14,12 +14,13 @@ flowchart LR
     cdpmux[CdpMux<br/>自写 CDP 客户端]:::backend
     forward[CDP 转发端点<br/>token · TCP 透明代理]:::backend
     shelllink[ShellLink]:::backend
-    importer[ImportService]:::backend
+    importer[ImportService<br/>书签 · 历史 · Cookie 解密]:::backend
+    updater[更新检查<br/>每 24 小时, 系统 curl]:::backend
     store[(SQLite<br/>rusqlite, WAL)]:::data
   end
   chrome[[Chrome / Arc 本地数据]]:::external
-  keychain[[macOS Keychain<br/>（Cookie 导入，后续 change）]]:::security
-  gh[[GitHub Releases<br/>（发布，后续 change）]]:::external
+  keychain[[macOS Keychain<br/>Safe Storage 口令]]:::security
+  gh[[GitHub Releases / Pages<br/>DMG · install.sh · 主页]]:::external
   user -->|点击 / 快捷键| renderer
   renderer -->|IPC| main
   main -->|创建 / 挂载 WebContentsView<br/>partition=persist:space-id| chromium
@@ -38,8 +39,12 @@ flowchart LR
   cdpmux -->|remote-debugging 端口| chromium
   shelllink -->|Unix socket, JSON 行| main
   importer -->|读取 Bookmarks / History| chrome
-  importer -.->|Safe Storage 密钥（后续）| keychain
-  cli -.->|alter upgrade（后续）| gh
+  importer -->|Safe Storage 口令, 用户授权| keychain
+  importer -->|Cookie 经 shell.importCookies| shelllink
+  main -->|cookies.set 写进 partition| chromium
+  updater -.->|releases/latest| gh
+  updater -->|app.updateAvailable| gateway
+  cli -.->|alter upgrade: 下载并运行 install.sh| gh
   classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
   classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b
   classDef data fill:#ede9fe,stroke:#7c3aed,color:#3b0764

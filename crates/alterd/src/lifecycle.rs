@@ -128,6 +128,7 @@ async fn run_async(home: &Path, exit_on_stdin_close: bool) -> anyhow::Result<Exi
         imports,
     );
     tokio::spawn(crate::gateway::serve(gw_listener, gateway.clone()));
+    crate::update::spawn(gateway.clone(), config.update_check.unwrap_or(true));
     tokio::spawn(crate::gateway::forward::serve(cdp_listener, gateway));
     alter_core::gateway_file::write(home, &gateway_file).context("写 gateway.json 失败")?;
     let health = HealthFile {

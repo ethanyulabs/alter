@@ -120,3 +120,12 @@ Electron 壳：窗口、托管 alterd、给 Renderer 的 IPC。
 #### Scenario: 快捷键刷新
 - WHEN 激活标签显示本地测试页 `/count`（服务器记录的请求次数为 1），在主进程点击菜单项 `nav.reload`
 - THEN 2 秒内服务器记录的 `/count` 请求次数为 2
+
+### Requirement: 侧边栏的更新提示条
+系统 SHALL 在 Shell 快照的 `updateAvailable` 不为空时，在侧边栏底部 Space 圆点上方显示提示条「新版本 <version> 可用 · 运行 alter upgrade」；点提示条在当前 Space 新标签打开 `url`，点「×」在本次运行内隐藏它。
+
+#### Scenario: 显示并打开 Release 页
+- WHEN 本地测试服务器提供 `/release` 页面，以 `ALTER_RELEASE_API` 指向一个返回 `{"tag_name":"v9.0.0","html_url":"http://127.0.0.1:<port>/release"}` 的假服务器、`ALTER_UPDATE_CHECK_DELAY_MS=0` 启动 app
+- THEN 5 秒内侧边栏出现文字为「新版本 9.0.0 可用 · 运行 alter upgrade」的提示条
+- AND 点它之后，当前 Space 新增一个激活的标签，URL 为 `http://127.0.0.1:<port>/release`
+- AND 点提示条上的「×」后它不再可见

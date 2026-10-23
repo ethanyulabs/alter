@@ -3,9 +3,9 @@
 <!-- 基础文档：每个需求都以它为起点的系统级背景。每份文档保持简短、与现状一致。需求让它们过时时，由存档步骤更新。 -->
 
 ## 用途
-alter 是一个 macOS 浏览器，给人和 AI agent 共用。对人，它提供 Arc 风格的交互：侧边栏标签、彼此隔离的 Space、固定标签、命令栏、分屏、自动归档和 Peek 预览，并能从 Chrome / Arc 导入书签和历史（Cookie 导入在后续 change）。对 agent，它提供 `alter` CLI 和 `alter nodejs` 脚本运行时（仿 ego-browser 的 TaskSpace / Page API），agent 在用户已登录的 Space 里完成任务，用户随时可以接管，再交还给 agent。热路径（agent 网关、CDP 多路复用、存储、导入）由 Rust 守护进程 `alterd` 承担，Electron 只负责窗口与 UI，脚本运行时用 Bun，目标是低延迟。
+alter 是一个 macOS 浏览器，给人和 AI agent 共用。对人，它提供 Arc 风格的交互：侧边栏标签、彼此隔离的 Space、固定标签、命令栏、分屏、自动归档和 Peek 预览，并能从 Chrome / Arc 导入书签、历史和 Cookie。对 agent，它提供 `alter` CLI 和 `alter nodejs` 脚本运行时（仿 ego-browser 的 TaskSpace / Page API），agent 在用户已登录的 Space 里完成任务，用户随时可以接管，再交还给 agent。热路径（agent 网关、CDP 多路复用、存储、导入）由 Rust 守护进程 `alterd` 承担，Electron 只负责窗口与 UI，脚本运行时用 Bun，目标是低延迟。
 
-现状：工程骨架、浏览器基础 UI，以及 add-core-features 交付的核心功能已实现——多个隔离的 Space、固定标签与拖拽、快捷键；Gateway、CDP 多路复用与转发、`alter nodejs` 与 SDK 的 TaskSpace / Page API；agent 叠层与接管交还；命令栏、浏览历史、分屏、Peek、自动归档；从 Chrome / Arc 导入书签与历史（向导与 `alter import`）。尚未实现、由后续 change 落地的：Cookie 导入（Keychain 解密），以及 agent skill、主页、DMG 打包、安装脚本与 `alter upgrade`（发布）。
+现状：工程骨架、浏览器基础 UI，以及 add-core-features 交付的核心功能已实现——多个隔离的 Space、固定标签与拖拽、快捷键；Gateway、CDP 多路复用与转发、`alter nodejs` 与 SDK 的 TaskSpace / Page API；agent 叠层与接管交还；命令栏、浏览历史、分屏、Peek、自动归档；从 Chrome / Arc 导入书签、历史与 Cookie（向导与 `alter import`；Cookie 经 Keychain 授权解密）。add-release-and-cookies 补齐了发布：Apple Silicon 的 DMG、推 tag 自动发布、`install.sh`、`alter upgrade`、新版本提示，以及主页（`site/`，GitHub Pages）与 agent skill（`skills/alter-browser`，`alter skill install` 安装）。
 
 ## 仓库
 | 仓库 | 路径 | 角色 | 技术栈 | 测试命令 |
@@ -37,6 +37,10 @@ alter 是一个 macOS 浏览器，给人和 AI agent 共用。对人，它提供
 | Snapshot | 页面的无障碍树文本，带 `@ref` 引用，agent 据此选目标元素。 |
 | Import Source | 导入来源：`chrome` 或 `arc`（Arc 也是 Chromium 数据格式）。 |
 | Page Budget | 一个 TaskSpace 允许同时打开的 Page 数上限。 |
+| Safe Storage 口令 | Chrome / Arc 存在 Keychain 里的口令（「Chrome Safe Storage」「Arc Safe Storage」），由它派生解密 Cookie 的密钥；只在导入任务的内存里存在。 |
+| 部分完成（partial） | 导入的一种结果：书签与历史照常导入，Cookie 没有导入，`warning` 说明原因（`keychain_denied` 用户拒绝授权，`shell_unavailable` 没有持有 Chromium 的 app 连接或它没有及时回报）。 |
+| 更新提示 | alterd 发现 GitHub 上有更新的版本时，经 Gateway 通知 `app.updateAvailable` 与 Shell 快照的 `updateAvailable` 告诉侧边栏、SDK；只提示，升级由用户运行 `alter upgrade`。 |
+| alter-browser skill | 给 agent 的使用说明（`SKILL.md` 与 `references/`），随 app 包发布，`alter skill install` 复制到 `~/.claude/skills`、`~/.codex/skills` 或 `--target` 目录，目录里的 `.alter-skill` 标记记录版本。 |
 
 ## 基础文档
 - [架构](architecture.md) · [核心流程](core-flows.md) · [组件](components.md) · [API](api.md) · [数据模型](data-model.md)

@@ -5,7 +5,7 @@ import { WebContentsView, type BrowserWindow } from "electron";
 import type { ShellEvent, ShellState, TabView } from "@alter/protocol";
 
 import { PEEK_CHANNELS, SIDEBAR_WIDTH, type PeekState } from "../shared/shell";
-import type { TabViews } from "./tab-views";
+import { partitionFor, type TabViews } from "./tab-views";
 
 /** Peek 视图的标记：测试经 `app.evaluate` 从 `globalThis` 读取，以区分 Peek 与标签页面 */
 const marked = new WeakSet<WebContentsView>();
@@ -29,7 +29,7 @@ export class Peek {
 
   open(url: string, tab: TabView): void {
     this.close();
-    const view = new WebContentsView({ webPreferences: { partition: `persist:space-${tab.spaceId}`, sandbox: true } });
+    const view = new WebContentsView({ webPreferences: { partition: partitionFor(tab.spaceId), sandbox: true } });
     marked.add(view);
     this.view = view;
     this.spaceId = tab.spaceId;

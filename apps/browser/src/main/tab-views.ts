@@ -5,6 +5,11 @@ import type { ShellEvent, ShellState, TabView } from "@alter/protocol";
 
 import { SIDEBAR_WIDTH, type NavAction, type NavState } from "../shared/shell";
 
+/** Space 的 Chromium partition：每个 Space 一套独立的 Cookie / storage。标签、Peek 与导入的 Cookie 都写在这里。 */
+export function partitionFor(spaceId: string): string {
+  return `persist:space-${spaceId}`;
+}
+
 export class TabViews {
   private readonly views = new Map<string, WebContentsView>();
   /** 当前挂在窗口上的标签（激活标签） */
@@ -56,7 +61,7 @@ export class TabViews {
     for (const id of this.spaces) {
       if (!live.has(id)) {
         // clearStorageData 不含 HTTP 缓存，缓存要另外清
-        const ses = session.fromPartition(`persist:space-${id}`);
+        const ses = session.fromPartition(partitionFor(id));
         Promise.all([ses.clearStorageData(), ses.clearCache()]).catch((e: unknown) =>
           console.error(`[tab-views] 清空 Space ${id} 的数据失败：${String(e)}`),
         );
@@ -145,7 +150,7 @@ export class TabViews {
 
   private create(tab: TabView): void {
     const view = new WebContentsView({
-      webPreferences: { partition: `persist:space-${tab.spaceId}`, sandbox: true },
+      webPreferences: { partition: partitionFor(tab.spaceId), sandbox: true },
     });
     const wc = view.webContents;
     // 不挂到窗口的视图也要有尺寸（截图、布局），且不能被节流（agent 在等它）

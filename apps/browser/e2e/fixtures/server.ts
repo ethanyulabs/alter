@@ -120,6 +120,24 @@ export async function startServer(): Promise<TestServer> {
       res.end(`<!doctype html><title>Cached</title><body>${"x".repeat(4096)}</body>`);
       return;
     }
+    // RC N2：假的 Release API，latest 指向同一台服务器的 /release 页面
+    if (path === "/api/releases/latest") {
+      const port = (server.address() as { port: number }).port;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ tag_name: "v9.0.0", html_url: `http://127.0.0.1:${port}/release` }));
+      return;
+    }
+    // RC N3：SKILL.md 快速上手示例访问的页面（代替 https://example.com）
+    if (path === "/example") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(`<!doctype html><title>Example Domain</title><h1>Example Domain</h1>`);
+      return;
+    }
+    if (path === "/release") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      res.end(`<!doctype html><title>Release v9.0.0</title><body>release notes</body>`);
+      return;
+    }
     if (path === "/echo-cookie") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
       res.end(`<!doctype html><title>Echo Cookie</title><body>cookie: ${req.headers.cookie ?? ""}</body>`);

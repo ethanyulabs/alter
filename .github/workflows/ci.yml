@@ -19,4 +19,6 @@ jobs:
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
+      # ci:check 里的 lint:sh 需要 shellcheck；镜像自带时跳过安装
+      - run: command -v shellcheck || brew install shellcheck
       - run: bun run ci:check

@@ -15,6 +15,12 @@ export function tempHome(): string {
 }
 
 /**
+ * 测试里的 alterd 默认把钥匙串当作拒绝授权，任何用例都不会弹出真实的授权框；
+ * 要导入 Cookie 的用例传入 `ALTER_KEYCHAIN_FAKE` 覆盖它（只在 debug 构建的 alterd 里生效）。
+ */
+const KEYCHAIN_DENIED = { ALTER_KEYCHAIN_FAKE: "denied" };
+
+/**
  * 启动 app。未指定 `ALTER_HOME` 时用一个新的临时目录，测试绝不碰真实数据目录。
  * `ALTER_E2E_ARGS` 可追加 Electron 命令行参数（例如 --no-sandbox）。
  */
@@ -22,7 +28,7 @@ export async function launchApp(env: Record<string, string> = {}): Promise<Elect
   const extra = process.env.ALTER_E2E_ARGS?.split(" ").filter(Boolean) ?? [];
   const app = await electron.launch({
     args: [MAIN_ENTRY, ...extra],
-    env: { ...process.env, ALTER_HOME: tempHome(), ...env } as Record<string, string>,
+    env: { ...process.env, ...KEYCHAIN_DENIED, ALTER_HOME: tempHome(), ...env } as Record<string, string>,
   });
   // 单个动作（点击、输入）最多等 5 秒：元素缺失时报出具体的定位器，而不是等满整个用例的超时。
   // 配置文件里的 use.actionTimeout 管不到 Electron 窗口，只能在这里设
@@ -47,7 +53,7 @@ export async function spawnApp(home: string): Promise<{ process: ChildProcess; c
   // 在 Node 里 import "electron" 得到的是 Electron 可执行文件的路径
   const electronPath = (await import("electron")).default as unknown as string;
   const child = spawn(electronPath, [MAIN_ENTRY, ...extra], {
-    env: { ...process.env, ALTER_HOME: home },
+    env: { ...process.env, ...KEYCHAIN_DENIED, ALTER_HOME: home },
     stdio: ["ignore", "pipe", "pipe"],
   });
   for (const stream of [child.stdout, child.stderr]) {
