@@ -13,8 +13,7 @@
     }
   ],
   "peers": [],
-  "commit_checkpoints": false,
-  "coverage_threshold": null,
+  "coverage_threshold": 80,
   "reviewer": [
     "codex:gpt-5.6-sol",
     "claude:opus-5"
