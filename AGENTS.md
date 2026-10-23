@@ -75,7 +75,7 @@ alter/
 ```
 
 ## 规则与约束
-- 规格先行：`.dev-flow/changes/` 里没有已批准的需求不改行为；测试先行，证据写进 log.md（见下方 dev-flow 块与 `.dev-flow/constitution.md`）。
+- 规格先行：`.dev-flow/changes/` 里没有已批准的需求不改行为；测试先行，证据写进 log.md（见下方「需求开发」与 `.dev-flow/constitution.md`）。
 - 只有 alterd 写 SQLite、只有 alterd 发 CDP；Electron Main 不碰数据库与 CDP，Renderer 只经 IPC 与 Main 通信。
 - `packages/sdk` 零 electron 依赖；`crates/alter-cli` 除 `nodejs` 子命令外不启动 Bun。
 - 协议类型的源头在 `crates/alter-core`，`packages/protocol` 由 `cargo run -p alter-core --bin export-ts` 生成；禁止手改生成文件。
@@ -101,14 +101,10 @@ alter/
 - CLI 用 `assert_cmd` 跑真实二进制，`ALTER_HOME` 指向临时目录。
 - alterd 退出路径（信号、stdin 关闭）的测试要覆盖宿主已死、stdin / stderr 管道都已断开的情况：此时写日志会失败，清理不能因此中断。只靠 e2e 才测得出的问题，codex 的沙箱跑不到。
 - `scripts/install.sh` 过 `shellcheck`，并用 `--dry-run` 断言步骤。
-- 一次变更完成的标准：宪章质量门禁全部通过（fmt、clippy、cargo test、lint、typecheck、bun test，涉及 UI / 网关时加 e2e），`dflow.py validate` 通过，log.md 有 RED → GREEN 证据。
+- 一次变更完成的标准：宪章质量门禁全部通过（fmt、clippy、cargo test、lint、typecheck、bun test，涉及 UI / 网关时加 e2e，改动的行覆盖率不低于 80%），`dflow.py validate` 通过，log.md 有 RED → GREEN 证据。
 
-<!-- dev-flow:start -->
-## 需求开发（dev-flow）
+## 需求开发
 
-本仓库的需求文档放在 `.dev-flow/`。这个块由 `dflow.py init` 生成，请在块外编辑。
-
-- 任何 chore、fix、feature（新模块或新服务）或 refactor 都用 dev-flow 技能：`/dev-flow new`、`/dev-flow update`（修改已批准的规格）、`/dev-flow run`（也负责评审、验证和进度）、`/dev-flow archive`；让 `/dev-flow new` 更新 AGENTS.md 会刷新本文件，`/dev-flow link <path>` / `/dev-flow unlink <path>` 管理多仓库项目里的其他仓库（Codex：`$dev-flow new ...`）。
-- `.dev-flow/changes/` 下没有已批准的需求时，不要改动行为。测试先行（red → green → refactor），证据写进该需求的 `log.md`。
+本仓库的需求文档放在 `.dev-flow/`，用 dev-flow 技能做需求开发：任何 chore、fix、feature 或 refactor 都走 `/dev-flow new` → `/dev-flow run` → `/dev-flow archive`（Codex：`$dev-flow …`）。
+- `.dev-flow/changes/` 下没有已批准的需求时，不改动行为。测试先行（red → green → refactor），证据写进该需求的 `log.md`。
 - 本仓库的测试命令：`cargo test && bun test`
-<!-- dev-flow:end -->
