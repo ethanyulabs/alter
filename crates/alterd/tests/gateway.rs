@@ -1202,3 +1202,180 @@ fn n4_cr3_page_close_dissolves_split() {
                 .any(|t| t["id"] == a.as_str() && t["splitGroup"].is_null())
     });
 }
+
+/// 在 `within` 内等一条 `app.updateAvailable`（跳过其他消息）；没有时为 None。
+fn next_update_notice(ws: &mut common::Ws, within: Duration) -> Option<serde_json::Value> {
+    let deadline = std::time::Instant::now() + within;
+    loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        if left.is_zero() {
+            return None;
+        }
+        let msg = common::ws_recv_within(ws, left)?;
+        if msg["method"] == "app.updateAvailable" {
+            return Some(msg);
+        }
+    }
+}
+
+/// RC N2 R12.S1 启动后推送新版本：已连接与之后连接的客户端各收到一条 app.updateAvailable。
+#[test]
+fn rc_n2_r12_s1_pushes_update_notice() {
+    let server = common::release_server::ReleaseServer::start();
+    server.latest("v9.0.0");
+    // 扣住 latest 的响应：客户端先连上，再放行，证明的是「广播给已连接的客户端」而不是「连接时补推」
+    server.hold("/api/releases/latest");
+    let home = tempfile::tempdir().unwrap();
+    let _d = common::Daemon::start_with_env(
+        home.path(),
+        &[
+            ("ALTER_RELEASE_API", &server.api()),
+            ("ALTER_UPDATE_CHECK_DELAY_MS", "0"),
+        ],
+    );
+    let want = json!({"version": "9.0.0", "url": "https://example.invalid/r/v9.0.0"});
+    let mut first = common::gateway_client(home.path());
+    assert!(
+        common::wait_until(Duration::from_secs(3), || !server.requests().is_empty()),
+        "alterd 应当已经在查询 latest"
+    );
+    server.release("/api/releases/latest");
+    let msg = next_update_notice(&mut first, Duration::from_secs(3))
+        .expect("3 秒内应当收到 app.updateAvailable");
+    assert_eq!(msg["params"], want, "{msg}");
+    assert!(
+        next_update_notice(&mut first, Duration::from_secs(1)).is_none(),
+        "同一个客户端只应收到一次"
+    );
+    let mut later = common::gateway_client(home.path());
+    let msg =
+        next_update_notice(&mut later, Duration::from_secs(3)).expect("后来连接的客户端也应当收到");
+    assert_eq!(msg["params"], want, "{msg}");
+    assert!(
+        next_update_notice(&mut later, Duration::from_secs(1)).is_none(),
+        "后来的客户端也只应收到一次"
+    );
+}
+
+/// RC N2 R12.S2 已是最新，或 config.toml 关闭了检查：5 秒内不推送；关闭时不发任何请求。
+#[test]
+fn rc_n2_r12_s2_no_notice_when_current_or_disabled() {
+    for disabled in [false, true] {
+        let server = common::release_server::ReleaseServer::start();
+        let home = tempfile::tempdir().unwrap();
+        if disabled {
+            server.latest("v9.0.0");
+            std::fs::write(home.path().join("config.toml"), "update_check = false\n").unwrap();
+        } else {
+            server.latest(&format!("v{}", env!("CARGO_PKG_VERSION")));
+        }
+        let _d = common::Daemon::start_with_env(
+            home.path(),
+            &[
+                ("ALTER_RELEASE_API", &server.api()),
+                ("ALTER_UPDATE_CHECK_DELAY_MS", "0"),
+            ],
+        );
+        let mut ws = common::gateway_client(home.path());
+        assert!(
+            next_update_notice(&mut ws, Duration::from_secs(5)).is_none(),
+            "disabled={disabled}：不应收到 app.updateAvailable"
+        );
+        if disabled {
+            assert!(
+                server.requests().is_empty(),
+                "关闭检查时不应发请求：{:?}",
+                server.requests()
+            );
+        } else {
+            assert!(!server.requests().is_empty(), "前提：确实检查过");
+        }
+    }
+}
+
+/// RC N2 R12.S3 检查失败：stderr 有一行 WARN「检查更新失败」，alterd 仍在运行。
+#[test]
+fn rc_n2_r12_s3_check_failure_is_logged() {
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let home = tempfile::tempdir().unwrap();
+    let mut d = common::Daemon::start_with_env(
+        home.path(),
+        &[
+            ("ALTER_RELEASE_API", &format!("http://127.0.0.1:{port}/api")),
+            ("ALTER_UPDATE_CHECK_DELAY_MS", "0"),
+        ],
+    );
+    std::thread::sleep(Duration::from_secs(2));
+    assert!(d.child.try_wait().unwrap().is_none(), "alterd 应当仍在运行");
+    let stderr = d.stop_and_stderr();
+    let warned = stderr
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .any(|v| {
+            v["level"] == "WARN"
+                && v["fields"]["message"]
+                    .as_str()
+                    .is_some_and(|m| m.contains("检查更新失败"))
+        });
+    assert!(warned, "stderr：{stderr}");
+}
+
+/// RC N2 T21 检查更新不读用户的 .curlrc：请求头里没有 .curlrc 加的 X-Leak。
+#[test]
+fn rc_n2_t21_ignores_curlrc() {
+    let server = common::release_server::ReleaseServer::start();
+    server.latest("v9.0.0");
+    let home = tempfile::tempdir().unwrap();
+    let fake_home = tempfile::tempdir().unwrap();
+    std::fs::write(fake_home.path().join(".curlrc"), "header = \"X-Leak: 1\"\n").unwrap();
+    let _d = common::Daemon::start_with_env(
+        home.path(),
+        &[
+            ("ALTER_RELEASE_API", &server.api()),
+            ("ALTER_UPDATE_CHECK_DELAY_MS", "0"),
+            ("HOME", fake_home.path().to_str().unwrap()),
+            ("CURL_HOME", fake_home.path().to_str().unwrap()),
+        ],
+    );
+    assert!(
+        common::wait_until(Duration::from_secs(3), || !server.headers().is_empty()),
+        "应当查询过 latest"
+    );
+    let headers = server.headers().join("");
+    assert!(
+        !headers.to_lowercase().contains("x-leak"),
+        "请求头：{headers}"
+    );
+    assert!(
+        headers.contains("alter/"),
+        "应当带 User-Agent alter/<version>：{headers}"
+    );
+}
+
+/// RC N2 T21 html_url 不是 https（也不是本机的 http）：不推送，记 WARN「检查更新失败」。
+#[test]
+fn rc_n2_t21_rejects_bad_html_url() {
+    let server = common::release_server::ReleaseServer::start();
+    server.route(
+        "/api/releases/latest",
+        200,
+        r#"{"tag_name":"v9.0.0","html_url":"javascript:alert(1)"}"#,
+    );
+    let home = tempfile::tempdir().unwrap();
+    let d = common::Daemon::start_with_env(
+        home.path(),
+        &[
+            ("ALTER_RELEASE_API", &server.api()),
+            ("ALTER_UPDATE_CHECK_DELAY_MS", "0"),
+        ],
+    );
+    let mut ws = common::gateway_client(home.path());
+    assert!(next_update_notice(&mut ws, Duration::from_secs(3)).is_none());
+    drop(ws);
+    let stderr = d.stop_and_stderr();
+    assert!(stderr.contains("检查更新失败"), "stderr：{stderr}");
+}

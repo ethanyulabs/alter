@@ -15,6 +15,8 @@ pub struct Config {
     pub archive_after_hours: Option<u64>,
     /// agent 页面的下载目录（默认 `~/Downloads`）
     pub download_dir: Option<String>,
+    /// 是否定期检查新版本（默认 true）
+    pub update_check: Option<bool>,
 }
 
 /// 配置文件的位置。

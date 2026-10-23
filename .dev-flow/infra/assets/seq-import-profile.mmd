@@ -6,6 +6,8 @@ sequenceDiagram
   participant I as alterd ImportService
   participant F as Chrome / Arc 数据目录
   participant S as alterd TabService / Store
+  participant K as macOS Keychain
+  participant M as Electron Main
   U->>R: 选来源 chrome|arc、profile、目标 Space、类别
   R->>G: import.run {source, profilePath?, spaceId, items?}（向导为 shell.event.importRequested）
   G->>I: 检查来源目录与 Space
@@ -15,7 +17,22 @@ sequenceDiagram
   I->>I: spawn_blocking 解析书签树、最近 90 天历史
   I->>S: 每批 500 条一个事务写书签（先查再插）与历史（INSERT OR IGNORE）
   I-->>R: import.progress bookmarks / history（只推给发起方）
-  I->>S: UPDATE imports status='done' 与计数（没写进去则 failed）
+  opt items 含 cookies
+    I->>F: Cookies 经 SQLite backup 读进内存库（不留副本）
+    I->>K: 取 Chrome / Arc Safe Storage 口令
+    alt 拒绝授权
+      Note over I: partial，warning keychain_denied
+    else 取到口令（只在内存）
+      I->>I: PBKDF2 派生密钥，AES-128-CBC 解密，过期的跳过，坏的计 skipped
+      I->>S: 经 TabService 找到持有 Chromium 的连接（发过 cdpReady）
+      S->>M: shell.importCookies（每批至多 500）
+      M->>M: session.fromPartition(persist:space-id).cookies.set
+      M-->>S: shell.event.cookiesImported {imported, rejected}
+      Note over I,M: 没有该连接或 10 秒内没回报：partial，warning shell_unavailable
+      I-->>R: import.progress cookies
+    end
+  end
+  I->>S: UPDATE imports status='done' / 'partial' 与计数（没写进去则 failed）
   I-->>R: import.done {status, counts}
   I->>I: 删除 import-tmp/<id>
   alt 来源目录不存在或没有数据文件

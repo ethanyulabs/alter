@@ -42,6 +42,7 @@ import {
   type ShellView,
 } from "../shared/shell";
 import { createActions } from "./actions";
+import { importCookies } from "./cookie-import";
 import { alterHome, DaemonSupervisor } from "./daemon";
 import { buildMenu } from "./menu";
 import { Peek } from "./peek";
@@ -108,6 +109,7 @@ const shell = new ShellLink(join(alterHome(), "shell.sock"), (cmd) => {
       tabs: cmd.tabs,
       taskSpaces: cmd.taskSpaces,
       archived: cmd.archived,
+      updateAvailable: cmd.updateAvailable,
     };
     setShellView({ ...shellView, state, error: undefined });
     tabViews?.apply(state);
@@ -136,6 +138,16 @@ const shell = new ShellLink(join(alterHome(), "shell.sock"), (cmd) => {
       error: cmd.error,
     };
     BrowserWindow.getAllWindows()[0]?.webContents.send(IMPORT_CHANNELS.progress, progress);
+  } else if (cmd.type === "shell.importCookies") {
+    const { requestId } = cmd;
+    void importCookies(cmd.spaceId, cmd.cookies)
+      .then(({ imported, rejected }) =>
+        shell.send({ type: "shell.event.cookiesImported", requestId, imported, rejected }),
+      )
+      .catch((e: unknown) => {
+        console.error(`[cookie-import] 写入 Cookie 失败：${String(e)}`);
+        shell.send({ type: "shell.event.cookiesImported", requestId, imported: 0, rejected: cmd.cookies.length });
+      });
   } else if (cmd.type === "shell.error") {
     setShellView({ ...shellView, error: { code: cmd.code, message: cmd.message } });
   }

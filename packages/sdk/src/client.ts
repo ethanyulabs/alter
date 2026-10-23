@@ -30,6 +30,8 @@ export class Client {
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
   private readonly listeners = new Set<(n: Notification) => void>();
+  /** 被动监听：只在已有的连接上收通知，不建连、不阻止空闲断开（脚本仍能按时退出）。 */
+  private readonly passive = new Set<(n: Notification) => void>();
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly gatewayFile: string) {}
@@ -59,6 +61,12 @@ export class Client {
       this.listeners.delete(listener);
       this.scheduleIdle();
     };
+  }
+
+  /** 被动地收通知：不为它建立或保持连接。返回取消的函数。 */
+  onNotification(listener: (n: Notification) => void): () => void {
+    this.passive.add(listener);
+    return () => this.passive.delete(listener);
   }
 
   /** 立即断开。 */
@@ -117,7 +125,11 @@ export class Client {
       return;
     }
     if (msg.id === undefined) {
-      if (msg.method) for (const l of this.listeners) l({ method: msg.method, params: msg.params ?? {} });
+      if (msg.method) {
+        const n = { method: msg.method, params: msg.params ?? {} };
+        for (const l of this.listeners) l(n);
+        for (const l of this.passive) l(n);
+      }
       return;
     }
     const p = this.pending.get(msg.id);

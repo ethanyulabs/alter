@@ -1,7 +1,7 @@
 //! Shell Control Channel 的消息：alterd 与 Electron Main 之间经 `ALTER_HOME/shell.sock` 交换，
 //! 每行一个 JSON 对象，`type` 区分消息。契约见 add-spaces-sidebar 的 design.md「接口契约」。
 
-use super::gateway::{ImportCounts, ImportItem, ImportSource, ImportStatus};
+use super::gateway::{ImportCounts, ImportItem, ImportSource, ImportStatus, UpdateAvailable};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -74,6 +74,10 @@ pub struct ShellState {
     /// 每个 Space 最近归档的至多 50 个标签，按归档时间降序
     #[serde(default)]
     pub archived: Vec<ArchivedTab>,
+    /// alterd 检查到的新版本；没有时不出现这个字段
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub update_available: Option<UpdateAvailable>,
 }
 
 /// 快照里的一个已归档标签。
@@ -118,6 +122,37 @@ pub struct SearchItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub input: Option<String>,
+}
+
+/// Cookie 的 SameSite 属性，取值与 Electron `cookies.set` 的 `sameSite` 相同。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+pub enum SameSite {
+    Unspecified,
+    NoRestriction,
+    Lax,
+    Strict,
+}
+
+/// 一个已解密、待写进 partition 的 Cookie。字段与 Electron `CookiesSetDetails` 同名；
+/// Main 对 host-only Cookie（`domain` 不以点开头）去掉 `domain` 再调用 `cookies.set`，其余字段原样传入。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportedCookie {
+    /// `http[s]://<去掉开头点的 domain><path>`，secure 的用 https
+    pub url: String,
+    pub name: String,
+    pub value: String,
+    /// 源库的 `host_key`：以点开头表示对子域名也生效，否则是 host-only
+    pub domain: String,
+    pub path: String,
+    pub secure: bool,
+    pub http_only: bool,
+    pub same_site: SameSite,
+    /// 过期时间（UNIX 秒）；会话 Cookie 没有这个字段
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional, type = "number")]
+    pub expiration_date: Option<i64>,
 }
 
 /// alterd → Electron。
@@ -167,6 +202,14 @@ pub enum ShellCommand {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         #[ts(optional)]
         error: Option<String>,
+    },
+    /// 把一批导入的 Cookie 写进 `persist:space-<spaceId>`，只发给最近一次上报 cdpReady 的连接；
+    /// Main 写完回 `shell.event.cookiesImported`，带同一 `request_id`
+    #[serde(rename = "shell.importCookies")]
+    ImportCookies {
+        request_id: u32,
+        space_id: String,
+        cookies: Vec<ImportedCookie>,
     },
 }
 
@@ -276,5 +319,12 @@ pub enum ShellEvent {
         profile: String,
         space_id: String,
         items: Vec<ImportItem>,
+    },
+    /// `shell.importCookies` 的结果：写入成功与被拒绝的条数
+    #[serde(rename = "shell.event.cookiesImported")]
+    CookiesImported {
+        request_id: u32,
+        imported: u32,
+        rejected: u32,
     },
 }

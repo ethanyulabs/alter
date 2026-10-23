@@ -82,9 +82,7 @@ fn find_bun() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("ALTER_BUN_PATH") {
         return Some(PathBuf::from(p));
     }
-    if let Some(sibling) = std::env::current_exe()
-        .ok()
-        .map(|e| e.with_file_name("bun"))
+    if let Some(sibling) = crate::exe::real_exe().map(|e| e.with_file_name("bun"))
         && sibling.is_file()
     {
         return Some(sibling);
@@ -101,9 +99,8 @@ fn find_runtime() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("ALTER_SDK_RUNTIME") {
         return Some(PathBuf::from(p));
     }
-    let packaged = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(|d| d.join("../sdk/runtime.js")));
+    let packaged =
+        crate::exe::real_exe().and_then(|e| e.parent().map(|d| d.join("../sdk/runtime.js")));
     if let Some(p) = packaged
         && p.is_file()
     {

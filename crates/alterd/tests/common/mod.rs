@@ -4,6 +4,7 @@
 
 pub mod fake_cdp;
 pub mod fixture_profile;
+pub mod release_server;
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -13,6 +14,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 use wait_timeout::ChildExt;
+
+/// 测试里的 alterd 默认把钥匙串当作拒绝授权：任何测试都不能弹出真实的授权框。
+/// 要导入 Cookie 的测试用 `start_with_env` 传入 `ALTER_KEYCHAIN_FAKE` 覆盖它。
+pub const KEYCHAIN_DENIED: &str = "denied";
 
 /// 测试结束时一定杀掉子进程，避免残留的 alterd 串扰其他测试。
 pub struct Daemon {
@@ -30,6 +35,7 @@ impl Daemon {
         let child = Command::new(env!("CARGO_BIN_EXE_alterd"))
             .arg("run")
             .env("ALTER_HOME", home)
+            .env("ALTER_KEYCHAIN_FAKE", KEYCHAIN_DENIED)
             .stdout(Stdio::null())
             .stderr(stderr)
             .spawn()
@@ -42,6 +48,7 @@ impl Daemon {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_alterd"));
         cmd.arg("run")
             .env("ALTER_HOME", home)
+            .env("ALTER_KEYCHAIN_FAKE", KEYCHAIN_DENIED)
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
         for (k, v) in envs {
@@ -100,8 +107,13 @@ impl Daemon {
 }
 
 impl Drop for Daemon {
+    /// 先 SIGTERM 让它走正常的退出路径（覆盖率数据只在正常退出时写出），2 秒内没退出再 kill。
     fn drop(&mut self) {
-        let _ = self.child.kill();
+        // SAFETY：kill 只向指定 pid 发信号，不涉及内存
+        unsafe { libc::kill(self.child.id() as libc::pid_t, libc::SIGTERM) };
+        if self.wait(Duration::from_secs(2)).is_none() {
+            let _ = self.child.kill();
+        }
         let _ = self.child.wait();
     }
 }

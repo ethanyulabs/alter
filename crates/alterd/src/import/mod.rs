@@ -1,10 +1,13 @@
-//! ImportService：把 Chrome / Arc profile 的书签与历史导入某个 Space（Cookie 的导入不在本需求，`items` 含它时拒绝）。
+//! ImportService：把 Chrome / Arc profile 的书签、历史与 Cookie 导入某个 Space。
+//! Cookie 用钥匙串里的 Safe Storage 口令解密后，经 `shell.importCookies` 交给 Electron Main 写进该 Space 的 partition。
 //! 源文件先拷贝到 `ALTER_HOME/import-tmp/<importId>/` 再读（源浏览器开着时库可能被锁）；
 //! 读文件与解析放进 `spawn_blocking`，写库经 TabService 的循环，每批 500 条一个事务。
 //! Gateway 与 Shell 两个入口共用 `Imports::start`，进度经调用方给的通道送回。
 
 mod bookmarks;
+mod cookies;
 mod history;
+mod keychain;
 pub(crate) mod sources;
 
 use std::collections::HashMap;
@@ -21,8 +24,19 @@ use tokio::sync::{mpsc, oneshot};
 use crate::lifecycle::now_millis;
 use crate::tabs::{self, OpError};
 
-/// 每个写库事务的条数。
+/// 每个写库事务的条数；Cookie 也按这个大小分批交给 Main。
 const BATCH: usize = 500;
+
+/// 部分完成的原因（`import.done` 的 `warning`）：取不到 Safe Storage 口令。
+const KEYCHAIN_DENIED: &str = "keychain_denied";
+/// 部分完成的原因：没有可写入 Cookie 的浏览器窗口，或它没有按时回报。
+const SHELL_UNAVAILABLE: &str = "shell_unavailable";
+
+/// 等 Main 回报一批 Cookie 写入结果的默认时限（毫秒），`ALTER_IMPORT_COOKIE_TIMEOUT_MS` 可改。
+const COOKIE_TIMEOUT_MS: u64 = 10_000;
+
+/// 一类数据的结果：条目数、跳过数，以及这一类没能完成时的部分完成原因。
+type ItemResult = Result<(u32, u32, Option<&'static str>), String>;
 
 /// 一次导入的请求。
 pub struct StartRequest {
@@ -69,12 +83,6 @@ impl Imports {
         if items.is_empty() {
             return Err(OpError::new(ErrorCode::InvalidArgument, "items 不能为空"));
         }
-        if items.contains(&ImportItem::Cookies) {
-            return Err(OpError::new(
-                ErrorCode::InvalidArgument,
-                "还不支持导入 Cookie",
-            ));
-        }
         let source = source_name(req.source);
         let space = req.space_id.clone();
         let path = dir.to_string_lossy().into_owned();
@@ -90,11 +98,17 @@ impl Imports {
                     .map_err(tabs::db_error)
             })
             .await??;
-        self.set_state(id, ImportStatus::Running, ImportCounts::default(), None);
+        self.set_state(
+            id,
+            ImportStatus::Running,
+            ImportCounts::default(),
+            None,
+            None,
+        );
         tracing::info!(import_id = id, source, "开始导入");
         tokio::spawn(
             self.clone()
-                .run(id, dir, req.space_id, source, items, events),
+                .run(id, dir, req.space_id, req.source, items, events),
         );
         Ok(id)
     }
@@ -137,21 +151,38 @@ impl Imports {
         id: i64,
         dir: PathBuf,
         space: String,
-        source: &'static str,
+        kind: ImportSource,
         items: Vec<ImportItem>,
         events: mpsc::UnboundedSender<Event>,
     ) {
+        let source = source_name(kind);
         let tmp = self.home.join("import-tmp").join(id.to_string());
         let mut counts = ImportCounts::default();
         let mut error = None;
+        let mut warning = None;
         for item in items {
-            let result = match item {
-                ImportItem::Bookmarks => self.bookmarks(&dir, &tmp, &space, source).await,
-                ImportItem::History => self.history(&dir, &tmp, &space, source).await,
-                ImportItem::Cookies => Err("还不支持导入 Cookie".to_owned()),
+            let result: ItemResult = match item {
+                ImportItem::Bookmarks => self
+                    .bookmarks(&dir, &tmp, &space, source)
+                    .await
+                    .map(|(n, k)| (n, k, None)),
+                ImportItem::History => self
+                    .history(&dir, &tmp, &space, source)
+                    .await
+                    .map(|(n, k)| (n, k, None)),
+                ImportItem::Cookies => self.cookies(&dir, &tmp, &space, kind).await,
             };
             match result {
-                Ok((n, skipped)) => {
+                Ok((n, skipped, partial)) => {
+                    if let Some(w) = partial {
+                        tracing::warn!(
+                            import_id = id,
+                            item = item_name(item),
+                            warning = w,
+                            "导入部分完成"
+                        );
+                        warning.get_or_insert(w);
+                    }
                     match item {
                         ImportItem::Bookmarks => counts.bookmarks = n,
                         ImportItem::History => counts.history = n,
@@ -172,7 +203,7 @@ impl Imports {
                     break;
                 }
             }
-            self.set_state(id, ImportStatus::Running, counts, None);
+            self.set_state(id, ImportStatus::Running, counts, None, None);
             let _ = events.send(Event::Progress(ImportProgress {
                 import_id: id,
                 item,
@@ -195,11 +226,14 @@ impl Imports {
 
         let mut status = if error.is_some() {
             ImportStatus::Failed
+        } else if warning.is_some() {
+            ImportStatus::Partial
         } else {
             ImportStatus::Done
         };
         let written = {
-            let error = error.clone();
+            // 部分完成时 error 列存原因：重启后 `status()` 从这里读回 warning
+            let error = error.clone().or_else(|| warning.map(str::to_owned));
             let name = status_name(status);
             let c = [
                 counts.bookmarks as i64,
@@ -219,15 +253,19 @@ impl Imports {
         if let Some(reason) = lost {
             tracing::error!(import_id = id, error = %reason, "导入结果没有写进数据库");
             status = ImportStatus::Failed;
-            error = Some(reason);
+            // 已经确定的原因（例如「目标 Space 已被删除」）更具体，保留它
+            error.get_or_insert(reason);
         }
-        self.set_state(id, status, counts, error);
+        let warning = (status == ImportStatus::Partial)
+            .then(|| warning.map(str::to_owned))
+            .flatten();
+        self.set_state(id, status, counts, warning.clone(), error);
         tracing::info!(import_id = id, status = status_name(status), "导入结束");
         let _ = events.send(Event::Done(ImportDone {
             import_id: id,
             status,
             counts,
-            warning: None,
+            warning,
         }));
     }
 
@@ -313,6 +351,89 @@ impl Imports {
         Ok((visits.len() as u32, skipped))
     }
 
+    /// 导入 Cookie：取口令、解密，按批交给持有 Chromium 的连接写入，返回 (写入数, 跳过数, 部分完成原因)；
+    /// profile 里没有 `Cookies` 时为 0，也不去碰钥匙串。取不到口令时一条也不导入（`keychain_denied`）；
+    /// 没有可写入的连接或它没有按时回报时，放弃剩下的批次（`shell_unavailable`），已回报的计数保留。
+    async fn cookies(
+        &self,
+        dir: &Path,
+        tmp: &Path,
+        space: &str,
+        source: ImportSource,
+    ) -> ItemResult {
+        let (src, tmp) = (dir.join("Cookies"), tmp.to_path_buf());
+        let now = now_millis();
+        let read = tokio::task::spawn_blocking(move || {
+            if !src.is_file() {
+                return Ok(None);
+            }
+            let Some(password) = keychain::safe_storage_password(source) else {
+                return Ok(Some(Err(())));
+            };
+            let key = cookies::derive_key(&password);
+            drop(password);
+            let db = in_memory(&src, &tmp)?;
+            cookies::read(&db, &key, now).map(|r| Some(Ok(r)))
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        let (all, mut skipped) = match read {
+            None => return Ok((0, 0, None)),
+            Some(Err(())) => return Ok((0, 0, Some(KEYCHAIN_DENIED))),
+            Some(Ok(read)) => read,
+        };
+        let timeout = std::time::Duration::from_millis(
+            std::env::var("ALTER_IMPORT_COOKIE_TIMEOUT_MS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(COOKIE_TIMEOUT_MS),
+        );
+        let mut imported = 0;
+        let mut rest = all;
+        while !rest.is_empty() {
+            let tail = rest.split_off(rest.len().min(BATCH));
+            let (batch, space) = (std::mem::replace(&mut rest, tail), space.to_owned());
+            let waiter = match self
+                .tabs(move |t| t.send_cookies(space, batch))
+                .await
+                .map_err(|e| e.message)?
+            {
+                tabs::CookieSend::Sent(waiter) => waiter,
+                tabs::CookieSend::NoShell => {
+                    return Ok((imported, skipped, Some(SHELL_UNAVAILABLE)));
+                }
+                tabs::CookieSend::SpaceGone => return Err("目标 Space 已被删除".to_owned()),
+                tabs::CookieSend::Internal(e) => return Err(format!("查询目标 Space 失败：{e}")),
+            };
+            match tokio::time::timeout(timeout, waiter).await {
+                Ok(Ok((ok, rejected))) => {
+                    imported += ok;
+                    skipped += rejected;
+                }
+                // 超时，或连接断开后等待方被丢弃
+                _ => return Ok((imported, skipped, Some(SHELL_UNAVAILABLE))),
+            }
+        }
+        Ok((imported, skipped, None))
+    }
+
+    /// 在 TabService 的循环里执行一段操作，等结果；不改变快照。
+    async fn tabs<T: Send + 'static>(
+        &self,
+        job: impl FnOnce(&mut tabs::TabService) -> T + Send + 'static,
+    ) -> Result<T, OpError> {
+        let (tx, rx) = oneshot::channel();
+        let boxed: tabs::GatewayJob = Box::new(move |t| {
+            let _ = tx.send(job(t));
+            false
+        });
+        let stopped = || OpError::new(ErrorCode::Internal, "TabService 已停止");
+        self.tabs
+            .send(tabs::Request::Gateway(boxed))
+            .map_err(|_| stopped())?;
+        rx.await.map_err(|_| stopped())
+    }
+
     /// 在 TabService 的循环里执行一段读写（它是数据库唯一写者），等结果。
     async fn db<T: Send + 'static>(
         &self,
@@ -339,6 +460,7 @@ impl Imports {
         id: i64,
         status: ImportStatus,
         counts: ImportCounts,
+        warning: Option<String>,
         error: Option<String>,
     ) {
         self.lock().insert(
@@ -346,7 +468,7 @@ impl Imports {
             ImportState {
                 status,
                 counts,
-                warning: None,
+                warning,
                 error,
             },
         );
@@ -365,7 +487,7 @@ pub fn remove_leftover_copies(home: &Path) {
     }
 }
 
-/// 按固定顺序（书签、历史、Cookie）排列并去重；None 为书签与历史（Cookie 的导入不在本需求）。
+/// 按固定顺序（书签、历史、Cookie）排列并去重；None 为书签与历史（Cookie 要显式选择：会弹钥匙串授权）。
 fn in_order(items: Option<&[ImportItem]>) -> Vec<ImportItem> {
     let all = [
         ImportItem::Bookmarks,
@@ -414,6 +536,53 @@ fn snapshot(src: &Path, tmp: &Path) -> Result<PathBuf, String> {
             tracing::warn!(path = %src.display(), error = %e, "源库无法经 SQLite 备份，改为拷贝文件");
             let _ = std::fs::remove_file(&copy);
             copy_in(src, tmp)
+        }
+    }
+}
+
+/// 把源 SQLite 库读进一个内存库：Cookies 的 `value` 列可能是明文，不在 ALTER_HOME 下留副本。
+/// 先经 backup API 直接从源库读；源库打不开或被锁时，退回拷贝到 `tmp`，再从拷贝读进内存，读完立即删除拷贝。
+fn in_memory(src: &Path, tmp: &Path) -> Result<rusqlite::Connection, String> {
+    let to_memory = |from: &Path| -> rusqlite::Result<rusqlite::Connection> {
+        use rusqlite::{OpenFlags, backup::Backup};
+        let source = rusqlite::Connection::open_with_flags(
+            from,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        source.busy_timeout(std::time::Duration::from_secs(1))?;
+        let mut mem = rusqlite::Connection::open_in_memory()?;
+        let done = {
+            let backup = Backup::new(&source, &mut mem)?;
+            // 一步拷完全部页；被锁时每 100 ms 重试一次，1 秒后放弃（调用方退回文件拷贝）
+            let mut done = false;
+            for _ in 0..10 {
+                if backup.step(-1)? == rusqlite::backup::StepResult::Done {
+                    done = true;
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            done
+        };
+        if done {
+            Ok(mem)
+        } else {
+            Err(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_BUSY),
+                Some("源库一直被锁".to_owned()),
+            ))
+        }
+    };
+    match to_memory(src) {
+        Ok(mem) => Ok(mem),
+        Err(e) => {
+            tracing::warn!(path = %src.display(), error = %e, "源库无法经 SQLite 备份，改为拷贝文件");
+            let copy = copy_in(src, tmp)?;
+            let mem = to_memory(&copy).map_err(|e| format!("读取 {} 失败：{e}", src.display()));
+            if let Err(e) = std::fs::remove_dir_all(tmp) {
+                tracing::warn!(path = %tmp.display(), error = %e, "删除导入的临时副本失败");
+            }
+            mem
         }
     }
 }

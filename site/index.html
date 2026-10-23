@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>alter — a browser for you and your AI agent</title>
+  <meta name="description" content="alter is a macOS browser shared by people and AI agents: isolated Spaces, a sidebar, and a scripting runtime that lets agents work in your signed-in Spaces while you can take over at any time.">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="wrap">
+    <header class="top">
+      <a class="brand" href="./"><img src="favicon.svg" alt="">alter</a>
+      <nav>
+        <a href="https://github.com/ethanyulabs/alter">GitHub</a>
+        <a href="https://github.com/ethanyulabs/alter/releases/latest">Releases</a>
+        <a href="zh/" hreflang="zh-CN">中文</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <h1>A browser for you and your AI agent.</h1>
+      <p>alter is a macOS browser with Arc-style Spaces and a vertical sidebar. Agents drive it through the <code>alter</code> CLI and a scripting runtime, inside the Spaces you are already signed in to — and you can take over whenever you want, then hand it back.</p>
+    </section>
+
+    <section id="install">
+      <h2>Install</h2>
+      <p>Run this in Terminal. It downloads the latest release, verifies its SHA256, installs <code>alter.app</code> into <code>/Applications</code> (<code>~/Applications</code> if that is not writable) and links the CLI to <code>~/.local/bin/alter</code>.</p>
+      <div class="install">
+        <code id="install-command">curl -fsSL https://github.com/ethanyulabs/alter/releases/latest/download/install.sh | bash</code>
+        <button type="button" data-copy="install-command">Copy</button>
+      </div>
+      <p class="note">alter currently supports Apple Silicon Macs (M1 or later) on macOS 13 or newer. Upgrade later with <code>alter upgrade</code>.</p>
+      <p class="note">Prefer a disk image? Download the DMG from the <a href="https://github.com/ethanyulabs/alter/releases/latest">latest release</a>. The app is not notarized, so macOS may block it the first time you open it: go to System Settings → Privacy &amp; Security → Open Anyway. Installing with the command above does not hit this.</p>
+    </section>
+
+    <section id="features">
+      <h2>What you get</h2>
+      <div class="grid">
+        <div class="card"><h3>Spaces</h3><p>Each Space has its own cookies and storage. Keep work and personal sessions apart and switch from the sidebar.</p></div>
+        <div class="card"><h3>Sidebar tabs</h3><p>Vertical tabs, pinned tabs, drag to reorder, and inactive tabs archived automatically.</p></div>
+        <div class="card"><h3>Command bar</h3><p>Press ⌘T to open a URL, search, or jump to a tab, Space, bookmark or history entry.</p></div>
+        <div class="card"><h3>Split view &amp; Peek</h3><p>Two tabs side by side, and Shift-click a link to preview it without leaving the page.</p></div>
+        <div class="card"><h3>Import from Chrome or Arc</h3><p>Bring bookmarks, recent history and cookies into a Space, so you stay signed in.</p></div>
+        <div class="card"><h3>Updates</h3><p>alter tells you when a new version is out; <code>alter upgrade</code> installs it.</p></div>
+      </div>
+    </section>
+
+    <section id="agents">
+      <h2>For AI agents</h2>
+      <p>Agents run scripts with <code>alter nodejs</code> using the TaskSpace / Page API: open pages, read snapshots, click, fill forms, take screenshots and download files. The agent's cursor and actions are shown on the page; when it hits a sign-in or a captcha it hands control to you, and waits until you hand it back.</p>
+<pre><code>alter nodejs &lt;&lt;'EOF'
+const ts = await taskSpace("demo");
+const page = ts.page("p1");
+await page.goto("https://example.com");
+console.log(await page.title());
+await ts.finish();
+EOF</code></pre>
+      <p>Teach your agent how to use alter by installing the bundled skill into Claude Code or Codex:</p>
+      <pre><code>alter skill install</code></pre>
+      <p class="note">It copies <code>alter-browser</code> into <code>~/.claude/skills</code> and <code>~/.codex/skills</code> (whichever exist); use <code>--target &lt;dir&gt;</code> for other agents. Playwright can also connect through <code>connectOverCDP</code>.</p>
+    </section>
+
+    <section id="faq">
+      <h2>FAQ</h2>
+      <details><summary>Does it run on Intel Macs?</summary><p>Not yet. Releases are built for Apple Silicon only.</p></details>
+      <details><summary>macOS says the app can't be opened.</summary><p>That happens when the DMG was downloaded in a browser. Open System Settings → Privacy &amp; Security and click Open Anyway, or reinstall with the command above.</p></details>
+      <details><summary>How do I uninstall?</summary><p>Delete <code>alter.app</code> from <code>/Applications</code> (or <code>~/Applications</code>) and <code>~/.local/bin/alter</code>; run <code>alter skill uninstall</code> first if you installed the skill. Your data lives in <code>~/Library/Application Support/alter</code>.</p></details>
+    </section>
+
+    <footer>
+      <p>alter is open source under the MIT license · <a href="https://github.com/ethanyulabs/alter">github.com/ethanyulabs/alter</a> · <a href="zh/" hreflang="zh-CN">中文</a></p>
+    </footer>
+  </div>
+  <script>
+    // 复制安装命令：只用页面内的这一小段脚本，不加载外部资源
+    for (const button of document.querySelectorAll("[data-copy]")) {
+      button.addEventListener("click", async () => {
+        const text = document.getElementById(button.dataset.copy).textContent;
+        try {
+          await navigator.clipboard.writeText(text);
+          button.textContent = "Copied";
+          setTimeout(() => (button.textContent = "Copy"), 1500);
+        } catch {
+          button.textContent = "Select and copy";
+        }
+      });
+    }
+  </script>
+</body>
+</html>

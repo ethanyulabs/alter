@@ -109,3 +109,47 @@ fn n5_r9_s2_missing_source_exits_1() {
         show(&out)
     );
 }
+
+/// RC N1 R8.S3 钥匙串拒绝授权：stdout 计数一行，stderr 一行 `warning: keychain_denied`，退出码 0。
+#[test]
+fn rc_n1_r8_s3_keychain_denied_warns() {
+    let home = tempfile::tempdir().unwrap();
+    let profile = tempfile::tempdir().unwrap();
+    fixture_profile::standard_cookies(profile.path());
+    let _d = common::Daemon::start(home.path());
+    let work = create_work(home.path());
+
+    let out = alter(home.path())
+        .args(["import", "--from", "chrome", "--profile"])
+        .arg(profile.path())
+        .args(["--space", &work, "--items", "cookies"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", show(&out));
+    assert_eq!(
+        text(&out.stdout),
+        "imported bookmarks=0 history=0 cookies=0 skipped=0\n",
+        "{}",
+        show(&out)
+    );
+    assert!(
+        text(&out.stderr)
+            .lines()
+            .any(|l| l == "warning: keychain_denied"),
+        "{}",
+        show(&out)
+    );
+}
+
+/// RC N1 R8.S4 帮助里不再说不支持 Cookie。
+#[test]
+fn rc_n1_r8_s4_help_lists_cookies() {
+    let home = tempfile::tempdir().unwrap();
+    let out = alter(home.path())
+        .args(["import", "--help"])
+        .output()
+        .unwrap();
+    let help = text(&out.stdout);
+    assert!(help.contains("cookies"), "{}", show(&out));
+    assert!(!help.contains("暂不支持"), "{}", show(&out));
+}

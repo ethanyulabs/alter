@@ -1,5 +1,6 @@
-// fixture profile：在临时目录里生成 Chromium 格式的 profile（Bookmarks JSON、History SQLite），
-// 与 Rust 侧 crates/alterd/tests/common/fixture_profile.rs 的「标准 fixture profile」一致
+// fixture profile：在临时目录里生成 Chromium 格式的 profile（Bookmarks JSON、History / Cookies SQLite），
+// 与 Rust 侧 crates/alterd/tests/common/fixture_profile.rs 的「标准 fixture profile」「标准 Cookie fixture」一致
+import { createCipheriv, createHash, pbkdf2Sync } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -81,5 +82,63 @@ export function standardProfile(dir: string): void {
   writeHistory(dir, [
     { url: "https://a.example/", title: "A", visits: [tenDaysAgo, tenDaysAgo + 60_000] },
     { url: "https://b.example/", title: "B", visits: [Date.now() - 100 * DAY_MS] },
+  ]);
+}
+
+/** fixture 的 Safe Storage 口令：alterd 以 `ALTER_KEYCHAIN_FAKE` 为它时能解开下面的 Cookie。 */
+export const COOKIE_PASSWORD = "peanuts";
+
+export interface CookieRow {
+  host: string;
+  name: string;
+  value: string;
+  /** 过期时间（UTC 毫秒）；省略为会话 Cookie */
+  expiresMs?: number;
+  httpOnly?: boolean;
+  secure?: boolean;
+}
+
+/** 按 Chromium 在 macOS 上的做法加密：v10 + AES-128-CBC（PBKDF2-HMAC-SHA1 派生密钥，IV 为 16 个空格）。 */
+function encryptV10(plain: Buffer): Buffer {
+  const key = pbkdf2Sync(COOKIE_PASSWORD, "saltysalt", 1003, 16, "sha1");
+  const cipher = createCipheriv("aes-128-cbc", key, Buffer.alloc(16, " "));
+  return Buffer.concat([Buffer.from("v10"), cipher.update(plain), cipher.final()]);
+}
+
+/** 写 `Cookies`（meta.version 24：明文前加 SHA256(host_key)）。 */
+export function writeCookies(dir: string, rows: CookieRow[]): void {
+  mkdirSync(dir, { recursive: true });
+  const db = new DatabaseSync(join(dir, "Cookies"));
+  try {
+    db.exec(`CREATE TABLE meta(key LONGVARCHAR NOT NULL UNIQUE PRIMARY KEY, value LONGVARCHAR);
+             CREATE TABLE cookies(creation_utc INTEGER NOT NULL, host_key TEXT NOT NULL,
+               top_frame_site_key TEXT NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL,
+               encrypted_value BLOB NOT NULL, path TEXT NOT NULL, expires_utc INTEGER NOT NULL,
+               is_secure INTEGER NOT NULL, is_httponly INTEGER NOT NULL, last_access_utc INTEGER NOT NULL,
+               has_expires INTEGER NOT NULL, is_persistent INTEGER NOT NULL, priority INTEGER NOT NULL,
+               samesite INTEGER NOT NULL, source_scheme INTEGER NOT NULL, source_port INTEGER NOT NULL,
+               last_update_utc INTEGER NOT NULL, source_type INTEGER NOT NULL,
+               has_cross_site_ancestor INTEGER NOT NULL);
+             INSERT INTO meta (key, value) VALUES ('version', '24');`);
+    const insert = db.prepare(
+      "INSERT INTO cookies VALUES (?, ?, '', ?, '', ?, '/', ?, ?, ?, ?, ?, ?, 1, -1, 1, 80, ?, 0, 0)",
+    );
+    const now = chromeTime(Date.now());
+    for (const r of rows) {
+      const plain = Buffer.concat([createHash("sha256").update(r.host).digest(), Buffer.from(r.value)]);
+      const has = r.expiresMs === undefined ? 0 : 1;
+      insert.run(now, r.host, r.name, encryptV10(plain), chromeTime(r.expiresMs ?? 0), r.secure ? 1 : 0, r.httpOnly ? 1 : 0, now, has, has, now);
+    }
+  } finally {
+    db.close();
+  }
+}
+
+/** 标准 Cookie fixture：sid=abc（127.0.0.1，30 天后过期，httpOnly）、theme=dark（.example.com，会话）、old=1（已过期）。 */
+export function standardCookies(dir: string): void {
+  writeCookies(dir, [
+    { host: "127.0.0.1", name: "sid", value: "abc", expiresMs: Date.now() + 30 * DAY_MS, httpOnly: true },
+    { host: ".example.com", name: "theme", value: "dark" },
+    { host: "127.0.0.1", name: "old", value: "1", expiresMs: Date.now() - DAY_MS },
   ]);
 }

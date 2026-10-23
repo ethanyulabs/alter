@@ -1,0 +1,36 @@
+flowchart LR
+  user([用户]):::frontend
+  agent([AI agent]):::external
+  subgraph mac [用户的 Mac]
+    subgraph bundle [alter.app]
+      main[Electron Main + Renderer]:::frontend
+      alterd[alterd]:::backend
+      cli[alter CLI + Bun + SDK]:::backend
+      skill[skills/alter-browser]:::data
+    end
+    chrome[(Chrome / Arc profile)]:::data
+    keychain[[macOS Keychain]]:::security
+    install[install.sh]:::backend
+  end
+  subgraph gh [GitHub]
+    rel[[Releases]]:::external
+    pages[[Pages 主页]]:::external
+  end
+  user -->|浏览| pages
+  user -->|curl install.sh| install
+  install -->|下载 DMG| rel
+  install -->|安装| bundle
+  alterd -->|N1 读 Cookies| chrome
+  alterd -->|N1 取 Safe Storage 口令| keychain
+  alterd -->|N1 shell.importCookies| main
+  alterd -->|N2 检查 latest| rel
+  cli -->|N2 alter upgrade| install
+  cli -->|N2 alter skill install| agent
+  skill -.->|N3 内容| agent
+  class alterd,main,cli,skill,install changed
+  classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
+  classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b
+  classDef data fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef external fill:#f1f5f9,stroke:#64748b,color:#1e293b,stroke-dasharray:4 3
+  classDef security fill:#ffe4e6,stroke:#e11d48,color:#881337
+  classDef changed stroke-width:3px,stroke:#dc2626

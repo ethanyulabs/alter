@@ -34,6 +34,10 @@ export function createAlter(opts: AlterOptions = {}) {
     async listTaskSpaces(): Promise<TaskSpaceSummary[]> {
       return (await client.call<{ taskSpaces: TaskSpaceSummary[] }>("taskSpace.list")).taskSpaces;
     },
+    /** 被动收 Gateway 的通知（如 `app.updateAvailable`）：不为它建立或保持连接。 */
+    onNotification(listener: (method: string, params: Record<string, unknown>) => void): () => void {
+      return client.onNotification((n) => listener(n.method, n.params));
+    },
     /** 断开与 alterd 的连接。 */
     close(): void {
       client.close();

@@ -1,0 +1,37 @@
+flowchart LR
+  dev([维护者推 v* tag]):::external
+  subgraph gh [GitHub]
+    wf[release.yml<br/>macos-14]:::backend
+    rel[[Releases<br/>dmg · sha256 · install.sh]]:::external
+    api[[Release API<br/>releases/latest]]:::external
+  end
+  subgraph mac [用户的 Mac]
+    sh[install.sh]:::backend
+    subgraph bundle [alter.app]
+      main[Electron Main]:::frontend
+      sidebar[Sidebar 提示条]:::frontend
+      bin[bin/alterd · bin/alter · bin/bun]:::backend
+      sdk[sdk/runtime.js]:::backend
+      skill[skills/alter-browser]:::data
+    end
+    link[~/.local/bin/alter]:::backend
+    agents[(~/.claude/skills<br/>~/.codex/skills)]:::data
+  end
+  dev -->|tag push| wf
+  wf -->|version-check --tag · bun run dist| rel
+  sh -->|curl dmg + sha256| rel
+  sh -->|hdiutil · ditto| bundle
+  sh -->|ln -sf| link
+  link -->|alter upgrade 读 latest| api
+  link -->|下载 install.sh 执行| sh
+  link -->|alter skill install| agents
+  skill -.->|复制| agents
+  bin -->|curl 每 24 小时| api
+  bin -->|shell 快照 updateAvailable| main
+  main --> sidebar
+  class wf,sh,link,sidebar,bin changed
+  classDef frontend fill:#cffafe,stroke:#0891b2,color:#164e63
+  classDef backend fill:#d1fae5,stroke:#059669,color:#064e3b
+  classDef data fill:#ede9fe,stroke:#7c3aed,color:#3b0764
+  classDef external fill:#f1f5f9,stroke:#64748b,color:#1e293b,stroke-dasharray:4 3
+  classDef changed stroke-width:3px,stroke:#dc2626

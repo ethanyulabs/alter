@@ -16,7 +16,10 @@
     "e2e": "bun run --cwd apps/browser e2e",
     "protocol:export": "cargo run -q -p alter-core --bin export-ts -- packages/protocol/src/generated",
     "version:check": "bash scripts/version-check.sh",
-    "ci:check": "cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && bun run lint && bun run typecheck && bun test && bun run version:check"
+    "lint:sh": "shellcheck -S style scripts/*.sh",
+    "dist": "bash scripts/dist.sh",
+    "dist:dir": "bash scripts/dist.sh --dir",
+    "ci:check": "cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test && bun run lint && bun run typecheck && bun test && bun run version:check && bun run lint:sh"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

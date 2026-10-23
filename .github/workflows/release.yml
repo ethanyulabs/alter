@@ -1,0 +1,42 @@
+# 推送 v* tag 时打包 Apple Silicon 的 DMG 并创建 GitHub Release（资产：DMG、.sha256、install.sh）。
+# tag 必须恰好为 v<三处一致的版本号>，否则在打包前失败。
+# 这个 job 有 contents: write 权限：第三方 action 都钉到 commit SHA（注释是查询时对应的 tag），checkout 不保留凭据。
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - name: 检查 tag 与版本号
+        run: bash scripts/version-check.sh --tag "$GITHUB_REF_NAME"
+      - name: 打包
+        run: bun run dist
+      - name: 检查包
+        run: bash scripts/check-bundle.sh dist/mac-arm64/alter.app "${GITHUB_REF_NAME#v}"
+      - name: 创建 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/alter-${version}-arm64.dmg" \
+            "dist/alter-${version}-arm64.dmg.sha256" \
+            scripts/install.sh \
+            --title "alter ${version}" \
+            --generate-notes

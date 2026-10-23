@@ -2,6 +2,8 @@
 // 每个测试 crate 只用到其中一部分
 #![allow(dead_code)]
 
+pub mod release_server;
+
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -31,11 +33,12 @@ pub struct Daemon {
 }
 
 impl Daemon {
-    /// 启动 alterd 并等到健康文件出现。
+    /// 启动 alterd 并等到健康文件出现。钥匙串一律当作拒绝授权：测试不能弹出真实的授权框。
     pub fn start(home: &Path) -> Daemon {
         let child = Command::new(alterd_bin())
             .arg("run")
             .env("ALTER_HOME", home)
+            .env("ALTER_KEYCHAIN_FAKE", "denied")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -50,7 +53,18 @@ impl Daemon {
 }
 
 impl Drop for Daemon {
+    /// 先 SIGTERM 让它走正常的退出路径（覆盖率数据只在正常退出时写出），2 秒内没退出再 kill。
     fn drop(&mut self) {
+        let _ = Command::new("kill")
+            .arg(self.child.id().to_string())
+            .status();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if matches!(self.child.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
         let _ = self.child.kill();
         let _ = self.child.wait();
     }

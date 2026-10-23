@@ -48,3 +48,11 @@ alterd 与 Electron Main 之间的本地控制通道：alterd 下发状态与指
 - THEN alterd 在 2 秒内退出，退出码为 1
 - AND stderr 中有一行 JSON 日志带 `code` 为 1，且消息包含 `shell.sock`
 - AND `ALTER_HOME/alterd.json` 不存在
+
+### Requirement: 把 Cookie 写进 Space 的 partition
+系统 SHALL 在 Electron Main 收到 `shell.importCookies` 时，把其中每个 Cookie 写进 partition `persist:space-<spaceId>`，再回一条带同一 `requestId` 的 `shell.event.cookiesImported`，其中 `imported` 为写入成功数、`rejected` 为被拒绝数。
+
+#### Scenario: 只有目标 Space 带上导入的 Cookie
+- WHEN app 有 Space `Personal` 与 `Work`，`ALTER_CHROME_DIR` 的 `Default` 有标准 Cookie fixture，alterd 带 `ALTER_KEYCHAIN_FAKE=peanuts` 运行，从导入向导把 Chrome `Default` 的 Cookie 导入 `Work`
+- THEN 在 `Work` 里打开本地测试服务器的 `http://127.0.0.1:<port>/echo-cookie`，页面显示的请求头 `Cookie` 包含 `sid=abc`
+- AND 在 `Personal` 里打开同一地址，页面显示的 `Cookie` 不包含 `sid=abc`

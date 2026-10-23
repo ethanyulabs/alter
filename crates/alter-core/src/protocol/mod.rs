@@ -13,12 +13,12 @@ pub use gateway::{
     ImportCounts, ImportDone, ImportItem, ImportProgress, ImportSource, ImportStarted, ImportState,
     ImportStatus, Ownership, OwnershipChanged, OwnershipReason, PROTOCOL_VERSION, Popup, Receipt,
     RpcErrorData, SpaceListResult, SpaceSummary, TakeOverResult, TaskSpaceInfo, TaskSpaceStatus,
-    TaskSpaceSummary, TaskSpaceTab,
+    TaskSpaceSummary, TaskSpaceTab, UpdateAvailable,
 };
 pub use health::HealthFile;
 pub use shell::{
-    ArchivedTab, SPACE_COLORS, SearchItem, SearchKind, ShellCommand, ShellEvent, ShellState,
-    SpaceView, TabView, TaskSpaceView,
+    ArchivedTab, ImportedCookie, SPACE_COLORS, SameSite, SearchItem, SearchKind, ShellCommand,
+    ShellEvent, ShellState, SpaceView, TabView, TaskSpaceView,
 };
 use ts_rs::{Config, ExportError, TS};
 
@@ -47,6 +47,7 @@ pub fn export_ts(dir: &Path) -> Result<(), ExportError> {
         ImportState::export_all,
         ImportProgress::export_all,
         ImportDone::export_all,
+        UpdateAvailable::export_all,
     ] {
         export(&cfg)?;
     }

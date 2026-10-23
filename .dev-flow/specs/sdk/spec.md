@@ -35,3 +35,10 @@
 #### Scenario: E_USER_CONTROL 不被重试
 - WHEN 假 Gateway 对 `page.goto` 返回 `E_USER_CONTROL`，SDK 调用 `page.goto("https://example.com")`
 - THEN 抛出 `code` 为 `E_USER_CONTROL` 的 `AlterError`，假 Gateway 恰好收到 1 次 `page.goto`
+
+### Requirement: 打印更新提示
+系统 SHALL 在 `alter nodejs` 运行的脚本收到 `app.updateAvailable` 时，向 stderr 打印恰好一次 `[alter:notice] alter <version> is available, run: alter upgrade`。
+
+#### Scenario: 收到两次通知只打印一次
+- WHEN 假 Gateway 在 SDK 连接后推送两次 `app.updateAvailable {"version":"9.0.0","url":"…"}`
+- THEN SDK 运行时的 stderr 恰好一行 `[alter:notice] alter 9.0.0 is available, run: alter upgrade`

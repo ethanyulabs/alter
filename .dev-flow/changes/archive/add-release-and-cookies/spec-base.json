@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "specs": {
+    "agent-overlay": "7bcf079095e38dd66e3bea268e3c18ff99256eefe0196167e822c56a5089a8a3",
+    "alterd-lifecycle": "8c661d8d1bc1d674a353f5a6c519ce621f593775bf78f751d9ad6cdb24807395",
+    "app-shell": "de4070aaa1da32998f61b8a8a386ee90f1ac9fab1d089ebf9efd55ed2a21b33d",
+    "cli": "bf1ab15ce5ea99ded9c67e6eb3c9f303bcef3c2a8516b037f700a011c48eb8a3",
+    "command-bar": "7f5322dde7e34ca3c7e4eaae6b05a1edcfefa86b287cb3d4177a8a1b65f384b6",
+    "gateway": "c7f1beef9fc3e0cc01327c96731b1136ec2ad8389077a14a57a1c315e90a06cc",
+    "history": "075440e680022e3ac1ce9aad63b656c1a69af7932ee8b1f918892489a5acf6d5",
+    "import": "7168d16872fb82b2b2cd216e876d7edd2d0e32427de7cdfad0f9f5e9328a22c8",
+    "import-wizard": "19c415333321b03649c7bd46f94aa1b0f2458f0c20e2fe5ed507f3ec78f9ef4c",
+    "page-api": "53867996f5926d89bffeb69cc5ce8426bf3c3ccff05bd106cfe91574f095f1e6",
+    "peek": "cb66cf76126d3ff285f9eefae1237f6f5f1df34461d29513b02f8df5840f747f",
+    "protocol": "023acecbe4ce298e611ce60ac9816c7667a03f9f7cea33eeedf9ffad80aa3a7f",
+    "sdk": "e4cc735655e4a450185f05e76dd60a3be40ec91f498a57bdd461c240c11b8977",
+    "shell-control": "4d72925524597031975ad64e4f6eed774573f8226ddd19778194bb3cec0dad0b",
+    "spaces": "76eb0480136f21a78e4a33e3f3355e44ccd18c51e8f07a6a2af05fb2c831a64c",
+    "storage": "29fa2ec2534312a48dc2d3a597c5e3b66a37c52bea4c124a6487978128c90b16",
+    "tabs": "9a255bd6bda2bb32715e0deac1bdf08597dc774ee5b0006c908bf5c96d3d0ed0",
+    "task-space": "f481b8fde85d9b7bc671259f6d85866945f6a59b28f1d7a2cdf73cb674c2f028"
+  }
+}

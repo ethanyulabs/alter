@@ -10,6 +10,7 @@ import HandoffBanner from "./HandoffBanner";
 import ImportWizard from "./ImportWizard";
 import NavButtons from "./NavButtons";
 import SpaceBar from "./SpaceBar";
+import UpdateBanner from "./UpdateBanner";
 
 interface Props {
   state: ShellState | null;
@@ -247,6 +248,7 @@ export default function Sidebar(props: Props): JSX.Element {
         <span data-testid="space-name" style={{ color: activeSpace()?.color }}>
           {activeSpace()?.name ?? ""}
         </span>
+        <UpdateBanner state={props.state} />
         <SpaceBar state={props.state} />
         <p>{props.daemonLabel}</p>
       </footer>

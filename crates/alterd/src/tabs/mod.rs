@@ -83,6 +83,33 @@ pub struct TabService {
     imports: Arc<crate::import::Imports>,
     /// ownership 为 user 的 TaskSpace 进入 user 的时刻（只在内存；启动时对库里已是 user 的从此刻算）
     user_since: HashMap<i64, std::time::Instant>,
+    /// 最近一次上报 cdpReady 的连接（持有 Chromium 的 Electron Main）：导入的 Cookie 只发给它
+    cdp_outbox: Option<Outbox>,
+    /// `shell.importCookies` 的 requestId → 等它回报的导入任务
+    cookie_waiters: HashMap<u32, CookieWaiter>,
+    /// 上一个分配出去的 `shell.importCookies` requestId
+    last_cookie_request: u32,
+    /// 检查更新得到的新版本，带进快照给侧边栏显示（只在内存里，重启后重新检查）
+    update_available: Option<alter_core::protocol::UpdateAvailable>,
+}
+
+/// 等一批 Cookie 写入结果的导入任务：只认收到这一批的连接、计数之和等于批大小的回报。
+struct CookieWaiter {
+    outbox: Outbox,
+    size: u32,
+    tx: tokio::sync::oneshot::Sender<(u32, u32)>,
+}
+
+/// `send_cookies` 的结果。
+pub(crate) enum CookieSend {
+    /// 已下发，等这个接收端拿 (imported, rejected)
+    Sent(tokio::sync::oneshot::Receiver<(u32, u32)>),
+    /// 没有可写入的连接（alterd 独立运行，或 Main 已断开）
+    NoShell,
+    /// 目标 Space 已被删除
+    SpaceGone,
+    /// 查询目标 Space 时数据库出错
+    Internal(String),
 }
 
 /// 处理一个事件期间只回给请求方的出口。
@@ -134,7 +161,7 @@ impl TabService {
             tracing::info!(space_id = %id, "已建默认 Space");
         }
         let discarded = HashSet::new();
-        let latest = snapshot_line(&store, &discarded)?;
+        let latest = snapshot_line(&store, &discarded, None)?;
         let now = std::time::Instant::now();
         let user_since = store
             .list_task_spaces()
@@ -158,7 +185,64 @@ impl TabService {
             history_rows: HashMap::new(),
             takeover,
             imports,
+            cdp_outbox: None,
+            cookie_waiters: HashMap::new(),
+            last_cookie_request: 0,
+            update_available: None,
         })
+    }
+
+    /// 记下检查到的新版本；与已记的相同时返回 false（不必重新发布快照）。
+    pub(crate) fn set_update(&mut self, update: alter_core::protocol::UpdateAvailable) -> bool {
+        if self.update_available.as_ref() == Some(&update) {
+            return false;
+        }
+        self.update_available = Some(update);
+        true
+    }
+
+    /// 把一批导入的 Cookie 发给持有 Chromium 的连接。每批都重新确认目标 Space 还在：
+    /// 导入期间它被删除时不再下发，否则 Main 会往已删除 Space 的 partition 里写。
+    pub(crate) fn send_cookies(
+        &mut self,
+        space_id: String,
+        cookies: Vec<alter_core::protocol::ImportedCookie>,
+    ) -> CookieSend {
+        match self.store.space_exists(&space_id) {
+            Ok(true) => {}
+            Ok(false) => return CookieSend::SpaceGone,
+            Err(e) => {
+                tracing::error!(error = %e, "查询目标 Space 失败");
+                return CookieSend::Internal(e.to_string());
+            }
+        }
+        let Some(outbox) = self.cdp_outbox.clone().filter(|o| !o.is_closed()) else {
+            return CookieSend::NoShell;
+        };
+        let size = cookies.len() as u32;
+        self.last_cookie_request = self.last_cookie_request.wrapping_add(1).max(1);
+        let request_id = self.last_cookie_request;
+        let cmd = ShellCommand::ImportCookies {
+            request_id,
+            space_id,
+            cookies,
+        };
+        let line = match serde_json::to_string(&cmd) {
+            Ok(line) => line,
+            Err(e) => {
+                tracing::error!(error = %e, "序列化 shell.importCookies 失败");
+                return CookieSend::NoShell;
+            }
+        };
+        if outbox.send(line.into()).is_err() {
+            return CookieSend::NoShell;
+        }
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        // 超时放弃的等待方会留下已关闭的发送端：顺便清掉
+        self.cookie_waiters.retain(|_, w| !w.tx.is_closed());
+        self.cookie_waiters
+            .insert(request_id, CookieWaiter { outbox, size, tx });
+        CookieSend::Sent(rx)
     }
 
     /// 逐个处理事件，直到所有连接与监听都已关闭。它是数据库的唯一写者。
@@ -295,6 +379,7 @@ impl TabService {
             }
             ShellEvent::CdpReady { port } => {
                 self.cdp_port = Some(port);
+                self.cdp_outbox = Some(reply.outbox.clone());
                 let cdp = self.cdp.clone();
                 tokio::spawn(async move {
                     if let Err(e) = cdp.connect(port).await {
@@ -397,6 +482,35 @@ impl TabService {
                     items,
                     reply.outbox.clone(),
                 ));
+                Ok(false)
+            }
+            // Cookie 写入结果：交给等这一批的导入任务，状态不变。只认收到这一批的连接、且两项之和等于批大小的回报；
+            // 其他的（别的连接、计数不对、已超时没人等）丢弃，等待方最终超时
+            ShellEvent::CookiesImported {
+                request_id,
+                imported,
+                rejected,
+            } => {
+                let matches = self.cookie_waiters.get(&request_id).is_some_and(|w| {
+                    w.outbox.same_channel(reply.outbox)
+                        && imported.checked_add(rejected) == Some(w.size)
+                });
+                match self.cookie_waiters.remove(&request_id) {
+                    Some(w) if matches => {
+                        let _ = w.tx.send((imported, rejected));
+                    }
+                    Some(w) => {
+                        tracing::warn!(
+                            request_id,
+                            imported,
+                            rejected,
+                            expected = w.size,
+                            "忽略不匹配的 Cookie 写入回报"
+                        );
+                        self.cookie_waiters.insert(request_id, w);
+                    }
+                    None => {}
+                }
                 Ok(false)
             }
             ShellEvent::TabActivated { tab_id } => {
@@ -524,7 +638,7 @@ impl TabService {
             self.discarded
                 .retain(|id| store.tab_exists(id).unwrap_or(true));
         }
-        match snapshot_line(&self.store, &self.discarded) {
+        match snapshot_line(&self.store, &self.discarded, self.update_available.as_ref()) {
             Ok(line) => {
                 self.latest = line.clone();
                 // 各连接共享同一份内容；发件箱已关闭的连接（任务已结束）顺便移除
@@ -597,6 +711,7 @@ fn event_kind(event: &ShellEvent) -> &'static str {
         ShellEvent::TabRestored { .. } => "shell.event.tabRestored",
         ShellEvent::ImportSourcesRequested { .. } => "shell.event.importSourcesRequested",
         ShellEvent::ImportRequested { .. } => "shell.event.importRequested",
+        ShellEvent::CookiesImported { .. } => "shell.event.cookiesImported",
     }
 }
 
@@ -746,11 +861,19 @@ fn snapshot(store: &Store, discarded: &HashSet<String>) -> anyhow::Result<ShellS
                 archived_at: a.archived_at,
             })
             .collect(),
+        // 更新提示由 snapshot_line 填入
+        update_available: None,
     })
 }
 
-fn snapshot_line(store: &Store, discarded: &HashSet<String>) -> anyhow::Result<Arc<str>> {
-    let cmd = ShellCommand::StateChanged(snapshot(store, discarded)?);
+fn snapshot_line(
+    store: &Store,
+    discarded: &HashSet<String>,
+    update: Option<&alter_core::protocol::UpdateAvailable>,
+) -> anyhow::Result<Arc<str>> {
+    let mut state = snapshot(store, discarded)?;
+    state.update_available = update.cloned();
+    let cmd = ShellCommand::StateChanged(state);
     Ok(serde_json::to_string(&cmd)
         .context("序列化快照失败")?
         .into())

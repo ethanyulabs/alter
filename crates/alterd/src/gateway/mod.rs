@@ -42,6 +42,9 @@ pub struct Gateway {
     queues: std::sync::Mutex<std::collections::HashMap<i64, Arc<tokio::sync::Mutex<()>>>>,
     /// 导入服务（与 Shell 入口共用）
     pub(crate) imports: Arc<crate::import::Imports>,
+    /// 检查更新的状态：之后连上的客户端各补推一次 `app.updateAvailable`。
+    /// 锁的顺序固定为先它、后 `listeners`：登记新连接与广播都在持有它时进行，连接不会漏收也不会收到两次
+    update: std::sync::Mutex<UpdateState>,
 }
 
 impl Gateway {
@@ -98,11 +101,26 @@ impl Gateway {
             download_contexts: tokio::sync::Mutex::new(std::collections::HashSet::new()),
             queues: std::sync::Mutex::new(std::collections::HashMap::new()),
             imports,
+            update: std::sync::Mutex::new(UpdateState::default()),
         });
         tokio::spawn(events::dispatch(gw.clone(), notices));
         tokio::spawn(events::track_dialogs(gw.clone()));
         tokio::spawn(events::track_downloads(gw.clone()));
         gw
+    }
+
+    /// 有新版本：记下来，推给当前所有连接（之后的连接在建立时补推）。同一版本在本次运行里只推一次。
+    pub(crate) fn announce_update(&self, update: alter_core::protocol::UpdateAvailable) {
+        let mut state = self.update.lock().unwrap_or_else(|e| e.into_inner());
+        if !state.announced.insert(update.version.clone()) {
+            return;
+        }
+        let line = update_line(&update);
+        state.current = Some(update);
+        self.listeners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|l| l.out.send(line.clone()).is_ok());
     }
 
     /// 该 TaskSpace 的串行队列。
@@ -114,6 +132,19 @@ impl Gateway {
             .or_default()
             .clone()
     }
+}
+
+/// 检查更新的结果：最近一次的新版本，以及本次运行里推过的版本。
+#[derive(Default)]
+struct UpdateState {
+    current: Option<alter_core::protocol::UpdateAvailable>,
+    announced: std::collections::HashSet<String>,
+}
+
+/// `app.updateAvailable` 通知的一行 JSON。
+fn update_line(update: &alter_core::protocol::UpdateAvailable) -> String {
+    serde_json::json!({"jsonrpc": "2.0", "method": "app.updateAvailable", "params": update})
+        .to_string()
 }
 
 /// 接受连接，每个连接一个任务。
@@ -156,16 +187,23 @@ async fn connection(stream: TcpStream, gateway: Arc<Gateway>) {
     let (mut sink, mut source) = ws.split();
     // 写出队列：请求任务把响应放进来，由这个任务依次写出
     let (out, mut out_rx) = mpsc::unbounded_channel::<String>();
-    // 登记这个连接：它请求过的 TaskSpace 的页面事件推给它
+    // 登记这个连接：它请求过的 TaskSpace 的页面事件推给它。持有更新状态的锁完成登记与补推，
+    // 与 announce_update 互斥：连接要么在广播之前登记（收到广播），要么之后（收到补推），恰好一次
     let interest = Arc::new(std::sync::Mutex::new(std::collections::HashSet::new()));
-    gateway
-        .listeners
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .push(events::Listener {
-            interest: interest.clone(),
-            out: out.clone(),
-        });
+    {
+        let state = gateway.update.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(update) = state.current.as_ref() {
+            let _ = out.send(update_line(update));
+        }
+        gateway
+            .listeners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(events::Listener {
+                interest: interest.clone(),
+                out: out.clone(),
+            });
+    }
     let writer = tokio::spawn(async move {
         while let Some(text) = out_rx.recv().await {
             if sink.send(Message::Text(text.into())).await.is_err() {

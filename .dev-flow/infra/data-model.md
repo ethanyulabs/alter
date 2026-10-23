@@ -211,3 +211,5 @@ UPDATE tabs SET pinned_url = url WHERE pinned = 1;
 - 写入只经 alterd 的单写连接；Electron 和 CLI 不打开数据库文件。
 - 迁移：`crates/alter-core/migrations/NNNN_<name>.sql` 按序号执行，每个文件一个事务，执行后写 `schema_version`；alterd 启动时自动迁移，降级不支持。有待执行的迁移时，先把数据库备份为 `alter.db.bak-<迁移前的版本>`（例如从 1 升到 2 时 `alter.db.bak-1`），备份失败则不迁移；全新库或已是最新时不备份。
 - 数据目录（`ALTER_HOME`）里除 `alter.db`（及 WAL 文件）外还有 alterd 的健康文件 `alterd.json` 与实例锁 `alterd.lock`，二者都不是数据库内容，格式见 api.md「进程状态」。
+- Cookie 导入不改表结构：`imports.cookies_count` 记 Main 回报写入的数；`status = 'partial'` 时 `error` 列存 warning（`keychain_denied` / `shell_unavailable`）。导入的 Cookie 本身只写进 Chromium 的 partition，不进数据库，Cookies 库只读进内存，`import-tmp` 里不留它的副本。
+- 不在数据库里的其他落盘内容：`ALTER_HOME/config.toml` 的可选键 `update_check`（false 关闭更新检查）；skill 安装目录里的 `.alter-skill` 标记（内容是安装它的 CLI 版本，不带换行），`alter skill uninstall` 只删带标记的目录，`alter upgrade` 据它刷新。是否有新版本只在 alterd 内存里，重启后重新检查。

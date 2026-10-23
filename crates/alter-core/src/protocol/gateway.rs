@@ -94,6 +94,16 @@ pub enum OwnershipReason {
     Returned,
 }
 
+/// 通知 `app.updateAvailable` 的参数，也是 Shell 快照里的 `updateAvailable`：GitHub 上有比自身新的版本。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAvailable {
+    /// 新版本号，不带 `v`（如 `0.2.0`）
+    pub version: String,
+    /// 该版本的 Release 页面
+    pub url: String,
+}
+
 /// 通知 `taskSpace.ownershipChanged` 的参数。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

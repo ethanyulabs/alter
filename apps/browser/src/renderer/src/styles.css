@@ -531,3 +531,31 @@ body,
 .import-wizard .error {
   color: #dc2626;
 }
+
+/* 更新提示条：侧边栏底部、Space 圆点上方；点它在新标签打开 Release 页，所以用比导入向导提示文案醒目的配色 */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: #eef2ff;
+}
+.update-banner .update-open {
+  flex: 1;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #4338ca;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.update-banner .update-dismiss {
+  padding: 0 4px;
+  border: none;
+  background: transparent;
+  color: #71717a;
+  cursor: pointer;
+}

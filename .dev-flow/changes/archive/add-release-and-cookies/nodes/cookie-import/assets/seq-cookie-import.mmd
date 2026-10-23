@@ -1,0 +1,30 @@
+sequenceDiagram
+  autonumber
+  participant C as 发起方（Gateway / Shell）
+  participant S as ImportService
+  participant K as keychain.rs
+  participant M as Electron Main
+  C->>S: import.run items 含 cookies
+  S->>S: 书签、历史（已有流程）
+  S->>S: Cookies 经 backup API 读进内存库（不在 ALTER_HOME 留副本）
+  S->>K: safe_storage_password(source)
+  alt 拒绝授权或没有这一项
+    K-->>S: Denied
+    S-->>C: import.done partial warning keychain_denied
+  else 取到口令
+    K-->>S: 口令（只在内存）
+    S->>S: PBKDF2 派生密钥，逐行解密，过期的跳过，坏的计 skipped
+    alt 没有 cdpReady 连接
+      S-->>C: import.done partial warning shell_unavailable
+    else 有连接
+      S->>M: shell.importCookies requestId spaceId cookies（每批至多 500）
+      M->>M: session.fromPartition(persist:space-id).cookies.set
+      alt 10 秒内回报
+        M-->>S: shell.event.cookiesImported imported rejected
+        S-->>C: import.progress cookies，import.done done
+      else 超时
+        S-->>C: import.done partial warning shell_unavailable
+      end
+    end
+  end
+  S->>S: 删除副本，清零口令与密钥

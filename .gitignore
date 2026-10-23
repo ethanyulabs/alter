@@ -2,6 +2,7 @@
 /target
 out/
 dist/
+/build/
 
 # 依赖
 node_modules/

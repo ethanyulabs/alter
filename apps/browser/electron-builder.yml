@@ -1,0 +1,31 @@
+# electron-builder 配置：Apple Silicon 的 alter.app 与 DMG，由 scripts/dist.sh 调用。
+# 包内 Contents/Resources 下放 alterd、alter、Bun（bin/）、打包后的 SDK 运行时（sdk/）与 agent skill（skills/）。
+appId: dev.ethanyulabs.alter
+productName: alter
+artifactName: alter-${version}-arm64.${ext}
+directories:
+  output: ../../dist
+# 主进程与 preload 运行时只依赖 electron 和 node 内置模块（renderer 由 vite 打包），不需要 node_modules
+files:
+  - out/**/*
+  - package.json
+  - "!node_modules/**"
+electronDist: node_modules/electron/dist
+npmRebuild: false
+extraResources:
+  - from: ../../build/bin
+    to: bin
+  - from: ../../build/sdk
+    to: sdk
+  - from: ../../skills/alter-browser
+    to: skills/alter-browser
+mac:
+  target:
+    - target: dmg
+      arch: arm64
+  # ad-hoc 签名：Apple Silicon 要求可执行代码至少有签名；不做 Developer ID 签名与公证
+  identity: "-"
+  hardenedRuntime: false
+  category: public.app-category.productivity
+dmg:
+  title: alter ${version}

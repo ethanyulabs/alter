@@ -151,6 +151,8 @@ sequenceDiagram
   participant I as alterd ImportService
   participant F as Chrome / Arc 数据目录
   participant S as alterd TabService / Store
+  participant K as macOS Keychain
+  participant M as Electron Main
   U->>R: 选来源 chrome|arc、profile、目标 Space、类别
   R->>G: import.run {source, profilePath?, spaceId, items?}（向导为 shell.event.importRequested）
   G->>I: 检查来源目录与 Space
@@ -160,7 +162,22 @@ sequenceDiagram
   I->>I: spawn_blocking 解析书签树、最近 90 天历史
   I->>S: 每批 500 条一个事务写书签（先查再插）与历史（INSERT OR IGNORE）
   I-->>R: import.progress bookmarks / history（只推给发起方）
-  I->>S: UPDATE imports status='done' 与计数（没写进去则 failed）
+  opt items 含 cookies
+    I->>F: Cookies 经 SQLite backup 读进内存库（不留副本）
+    I->>K: 取 Chrome / Arc Safe Storage 口令
+    alt 拒绝授权
+      Note over I: partial，warning keychain_denied
+    else 取到口令（只在内存）
+      I->>I: PBKDF2 派生密钥，AES-128-CBC 解密，过期的跳过，坏的计 skipped
+      I->>S: 经 TabService 找到持有 Chromium 的连接（发过 cdpReady）
+      S->>M: shell.importCookies（每批至多 500）
+      M->>M: session.fromPartition(persist:space-id).cookies.set
+      M-->>S: shell.event.cookiesImported {imported, rejected}
+      Note over I,M: 没有该连接或 10 秒内没回报：partial，warning shell_unavailable
+      I-->>R: import.progress cookies
+    end
+  end
+  I->>S: UPDATE imports status='done' / 'partial' 与计数（没写进去则 failed）
   I-->>R: import.done {status, counts}
   I->>I: 删除 import-tmp/<id>
   alt 来源目录不存在或没有数据文件
@@ -173,9 +190,9 @@ sequenceDiagram
 <!-- /dflow:diagram -->
 
 - 触发：侧边栏底部菜单的「导入…」向导，或 `alter import --from chrome|arc --space <id>`。
-- 步骤：1–5 用户选来源、profile、目标 Space 与类别，Gateway（向导经 Shell）检查来源与 Space、建 `imports` 记录并立即返回 importId；6–7 ImportService 把 Bookmarks 拷贝、History 经 SQLite backup 取一致快照到临时目录，在 `spawn_blocking` 里解析书签树与最近 90 天历史；8–9 经 TabService 每批 500 条一个事务写库，每完成一类推一条进度；10–12 写最终状态与计数，推 `import.done`，删除临时副本。
-- 失败处理：来源目录不存在或没有数据文件 → `E_IMPORT_SOURCE_NOT_FOUND`，不建 imports 行；解析失败的单条记录跳过并计入 `skipped`；重复导入不产生重复（书签先查再插，历史按（URL、访问时间）去重）；结果没写进数据库时记 `failed`；alterd 中途退出的导入在下次启动时记为 `failed`（`interrupted`）并删除临时副本。Cookie 导入（Keychain 取 Safe Storage 口令、解密、经 CDP 写进目标 Space 的 partition，拒绝授权时 `partial`）待后续 change。
-- 代码入口：`alter:crates/alterd/src/import/{mod.rs,sources.rs,bookmarks.rs,history.rs}`、`alter:crates/alterd/src/gateway/imports.rs`、`alter:crates/alter-core/src/store/{bookmarks.rs,imports.rs,history.rs}`、`alter:apps/browser/src/renderer/src/ImportWizard.tsx`、`alter:crates/alter-cli/src/import.rs`。
+- 步骤：1–5 用户选来源、profile、目标 Space 与类别，Gateway（向导经 Shell）检查来源与 Space、建 `imports` 记录并立即返回 importId；6–7 ImportService 把 Bookmarks 拷贝、History 经 SQLite backup 取一致快照到临时目录，在 `spawn_blocking` 里解析书签树与最近 90 天历史；8–9 经 TabService 每批 500 条一个事务写库，每完成一类推一条进度；10–17 `items` 含 `cookies` 时（向导默认勾选，CLI 与 Gateway 要显式指定）再把 Cookies 库经 backup 读进内存，取 Safe Storage 口令、解密，经 TabService 分批发 `shell.importCookies` 给持有 Chromium 的 Main，Main 用 `cookies.set` 写进目标 Space 的 partition 后回报 `cookiesImported`；18–20 写最终状态与计数，推 `import.done`，删除临时副本。
+- 失败处理：来源目录不存在或没有数据文件 → `E_IMPORT_SOURCE_NOT_FOUND`，不建 imports 行；解析失败的单条记录跳过并计入 `skipped`；重复导入不产生重复（书签先查再插，历史按（URL、访问时间）去重）；结果没写进数据库时记 `failed`；alterd 中途退出的导入在下次启动时记为 `failed`（`interrupted`）并删除临时副本。Cookie：拒绝授权或 Keychain 里没有这一项时书签与历史照常导入，结果 `partial`（`keychain_denied`）；没有持有 Chromium 的 Shell 连接或某批 10 秒内（`ALTER_IMPORT_COOKIE_TIMEOUT_MS`）没回报时 `partial`（`shell_unavailable`），已回报的计数保留；无法解密、主机名前缀不符的行与 Main 拒绝的计入 `skipped`，过期的不导入；目标 Space 中途被删除时 `failed`。口令、密钥与明文不写日志、不落盘。
+- 代码入口：`alter:crates/alterd/src/import/{mod.rs,sources.rs,bookmarks.rs,history.rs,cookies.rs,keychain.rs}`、`alter:crates/alterd/src/tabs/mod.rs`（`send_cookies`）、`alter:apps/browser/src/main/cookie-import.ts`、`alter:crates/alterd/src/gateway/imports.rs`、`alter:crates/alter-core/src/store/{bookmarks.rs,imports.rs,history.rs}`、`alter:apps/browser/src/renderer/src/ImportWizard.tsx`、`alter:crates/alter-cli/src/import.rs`。
 
 ## 流程：app 启动并托管 alterd
 <!-- dflow:diagram assets/seq-app-startup.mmd -->
@@ -228,6 +245,50 @@ sequenceDiagram
 - 失败处理：alterd 的 stderr 经管道由 Main 转发，不继承主进程 stdio，避免拖住 app 退出。Main 自己的 stdout / stderr 读端可能已关闭（启动它的终端或测试进程已退出）：写入错误一律忽略，不成为未捕获异常；alterd 日志的转发在 stderr 正常时保留背压，stderr 断开后读走丢弃，alterd 不会因写满管道而卡住（`apps/browser/src/main/stdio.ts`）。alterd 其他错误（打开数据库失败等）以退出码 1 退出并写 `code=1` 的 JSON 日志，Main 推 `exited`。app 被强制结束（SIGKILL、崩溃）时 `before-quit` 不执行，但内核会关闭 stdin 管道写端，alterd 读到 EOF（或读取出错）后走同一条清理路径：删除健康文件，退出码 0。此时 stderr 管道也已断开，alterd 关闭了 tracing 的内部错误报告，写日志失败不会 panic。复用外部实例后 Main 不再监视它，外部实例之后退出时页面仍显示「运行中」（后续由网关握手 / 心跳处理）。
 - 代码入口：`alter:apps/browser/src/main/daemon.ts`（`resolveAlterdPath`、`DaemonSupervisor`）、`alter:apps/browser/src/main/index.ts`（`before-quit`）、`alter:crates/alterd/src/lifecycle.rs`（`run`）、`alter:crates/alter-core/src/health.rs`。
 
+## 流程：升级（alter upgrade）
+<!-- dflow:diagram assets/seq-upgrade.mmd -->
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as 用户终端
+  participant C as alter upgrade（旧版）
+  participant A as Release API
+  participant R as Releases 下载
+  participant I as install.sh（新版）
+  participant N as alter（新版）
+  U->>C: alter upgrade
+  C->>A: curl releases/latest
+  alt 取不到
+    A-->>C: 失败
+    C-->>U: 无法获取最新版本，退出码 1
+  else 已是最新
+    A-->>C: tag_name 等于自身版本
+    C-->>U: is up to date，退出码 0
+  else 有新版本
+    A-->>C: tag_name v0.2.0
+    C->>C: canonicalize current_exe 得到 prefix 与 bin-dir，记下带 .alter-skill 的目录
+    C->>R: curl v0.2.0/install.sh
+    C->>I: bash install.sh --version v0.2.0 --prefix A --bin-dir B
+    I->>R: curl dmg 与 sha256
+    alt SHA256 不符
+      I-->>C: 非 0
+      C-->>U: 升级失败，原版本不动
+    else 校验通过
+      I->>I: hdiutil attach；正在运行的是 A/alter.app 则 kill -TERM 并等它退出；ditto 到 .new，旧包改名 .old，.new 改名；detach；ln -sf；删 .old；原来在运行则 open 重开（失败时 trap 恢复 .old 并重开）
+      I-->>C: 0
+      C->>N: B/alter skill install --target 每个记下的目录
+      C-->>U: upgraded to 0.2.0
+    end
+  end
+```
+<!-- /dflow:diagram -->
+
+- 触发：用户运行 `alter upgrade`（侧边栏提示条、`alter upgrade --check` 或 agent 转告的 `[alter:notice]` 告诉用户有新版本）。agent 不自己运行它。
+- 步骤：1–2 CLI 用系统 curl 取 Release API 的 latest；3–4 取不到时退出码 1；5–6 不比自身新时报 up to date（只升不降）；7–8 有新版本时用 `real_exe()` 找到所在的 app 包，`--prefix` 取包所在目录、`--bin-dir` 取用户调用的符号链接所在目录，记下带 `.alter-skill` 的 skill 目录；9–10 把该版本的 install.sh 下载进 0700 的临时目录并运行；11 install.sh 下载 DMG 与 `.sha256`；12–13 校验不符时非 0 退出，原安装不动；14 挂载 DMG，若正在运行的正是要替换的那个包则 `kill -TERM` 等它退出，ditto 到 `.new`、旧包改名 `.old`、`.new` 改名，detach，重建链接，删 `.old`，原来在运行就 `open` 重开；15–17 用新版的 `alter skill install --target` 刷新记下的 skill，输出 `upgraded to <v>`。
+- 失败处理：install.sh 的 EXIT trap 在替换之后任何一步失败时删掉新包、恢复 `.old`、卸载 DMG，并重开原来在运行的 app；运行中的 alter 10 秒内不退出时不做任何改动、退出码 1。不是从 app 包运行（例如开发构建）时 `alter upgrade` 拒绝并提示重新运行 install.sh。
+- 代码入口：`alter:crates/alter-cli/src/{upgrade.rs,exe.rs,skill.rs}`、`alter:scripts/install.sh`；发布侧是 `alter:.github/workflows/release.yml` 与 `alter:scripts/{dist.sh,check-bundle.sh,version-check.sh}`。
+
 ## 未展开的流程
 - 自动归档（alterd 的 Archiver 定时请 TabService 归档）、Peek（Electron 内的浮层视图）、分屏（快照的 `splitGroup`，Main 并排挂两个视图）、命令栏（`searchRequested` / `searchResults`）：在 add-core-features 的 N4 design.md 里画了图。
-- `install.sh` 与 `alter upgrade`：线性脚本，待发布 change。
+- 新版本提示：alterd 的 `update.rs` 定时取 latest，发现新版本后推 `app.updateAvailable` 并写进快照；侧边栏显示提示条，SDK 在 stderr 打 `[alter:notice]`。只提示，不自动升级。
+- 首次安装：`curl … install.sh | bash`，步骤同上图 install.sh 的部分，只是没有旧版本可替换。
