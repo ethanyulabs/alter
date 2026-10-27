@@ -35,15 +35,21 @@ bun build packages/sdk/src/runtime.ts --target bun --outfile build/sdk/runtime.j
 echo "dist：构建 Electron 壳"
 bun run build
 
+# electron 包安装时不下载二进制（没有 postinstall），第一次 require 时才下载；
+# electron-builder.yml 的 electronDist 指向这个目录，干净的机器（CI）上要先下载。已下载且版本一致时它直接退出
+echo "dist：取 Electron"
+bun apps/browser/node_modules/electron/install.js
+
 echo "dist：electron-builder（${mode}）"
 rm -rf dist
+# --publish never：推 tag 触发的构建里 electron-builder 默认会尝试发布到 GitHub，发布由 release 工作流的 gh release create 负责
 if [[ "$mode" == "dir" ]]; then
-  (cd apps/browser && ./node_modules/.bin/electron-builder -c electron-builder.yml --mac --arm64 --dir)
+  (cd apps/browser && ./node_modules/.bin/electron-builder -c electron-builder.yml --mac --arm64 --dir --publish never)
 else
   # 出 DMG 时 hdiutil 偶尔因为卷被占用（Spotlight 等）卸载失败：重试一次
-  if ! (cd apps/browser && ./node_modules/.bin/electron-builder -c electron-builder.yml --mac --arm64); then
+  if ! (cd apps/browser && ./node_modules/.bin/electron-builder -c electron-builder.yml --mac --arm64 --publish never); then
     echo "dist：electron-builder 失败，重试一次" >&2
-    (cd apps/browser && ./node_modules/.bin/electron-builder -c electron-builder.yml --mac --arm64)
+    (cd apps/browser && ./node_modules/.bin/electron-builder -c electron-builder.yml --mac --arm64 --publish never)
   fi
   (cd dist && shasum -a 256 "alter-${version}-arm64.dmg" > "alter-${version}-arm64.dmg.sha256")
 fi
